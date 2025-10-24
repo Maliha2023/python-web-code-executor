@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- এখানে টাইটেল পরিবর্তন করা হলো -->
+    <title>Python Web Code Executor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header>
+        <!-- H1 ট্যাগ এ নাম পরিবর্তন করা হলো -->
+        <h1>Python Web Code Executor</h1>
+    </header>
+    <main>
+        <section class="editor-section">
+            <div class="header-bar">
+                <h2>Code Editor (Python)</h2>
+            </div>
+            <textarea id="code-input" placeholder="# Write your Python code here..."></textarea>
+        </section>
+
+        <section class="io-section">
+            <div class="input-output-container">
+                <div class="input-container">
+                    <div class="header-bar">
+                        <h2>User Input (Optional)</h2>
+                    </div>
+                    <textarea id="user-input" placeholder="Enter input values here, separated by new lines if needed."></textarea>
+                </div>
+
+                <div class="output-container">
+                    <div class="header-bar">
+                        <h2>Output / Errors</h2>
+                    </div>
+                    <pre id="output-display">Click 'Run Code' to see the result.</pre>
+                </div>
+            </div>
+            
+            <div class="run-control">
+                <button id="run-button">Run Code</button>
+                <span id="status-message">Ready</span>
+            </div>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
