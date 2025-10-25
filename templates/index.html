@@ -10,7 +10,6 @@
 </head>
 <body>
     <header>
-        <!-- টাইটেল পরিবর্তন করা হলো -->
         <h1>Python Web Code Executor</h1>
         <p>A simple environment to run and test Python code in the browser.</p>
     </header>
@@ -19,11 +18,16 @@
             <div class="header-bar">
                 <h2>Code Editor (Python)</h2>
             </div>
-            <textarea id="code-editor" spellcheck="false"></textarea>
+            
+            <!-- লাইন নাম্বারিং এর জন্য নতুন স্ট্রাকচার -->
+            <div class="editor-container">
+                <div id="line-numbers" class="line-numbers">1</div>
+                <textarea id="code-editor" spellcheck="false"></textarea>
+            </div>
+            <!-- স্ট্রাকচার শেষ -->
 
             <div class="run-control">
                 <button id="run-button">Run Code</button>
-                <!-- কম্পাইলার ফেজের বাটনগুলি সরিয়ে দেওয়া হলো -->
             </div>
         </div>
         
@@ -37,8 +41,8 @@
                 <div class="header-bar">
                     <h2>Output / Errors</h2>
                 </div>
-                <!-- Output area: use <pre> for formatted output, but <textarea> to allow styling -->
-                <textarea id="output-area" readonly placeholder="Ready to execute code or analyze phases."></textarea>
+                <!-- Output area: use <textarea> to allow styling -->
+                <textarea id="output-area" readonly placeholder="Ready to run code."></textarea>
             </div>
         </div>
     </main>
