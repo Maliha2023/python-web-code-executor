@@ -1,7 +1,7 @@
 body {
     font-family: 'Roboto Mono', monospace;
-    background-color: #121212; /* Darker background */
-    color: #e0e0e0;
+    background-color: #121212; /* Dark background */
+    color: #e0e0e0; /* Light text color */
     margin: 0;
     padding: 0;
     display: flex;
@@ -10,10 +10,10 @@ body {
 }
 
 header {
-    background-color: #1f1f1f; /* Dark header background */
+    background-color: #1f1f1f; /* Darker header background */
     color: #1a73e8; /* Deep Blue brand color */
     padding: 20px 30px;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); /* Stronger shadow */
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); 
     text-align: center;
     border-bottom: 2px solid #1a73e8; /* Blue accent line */
 }
@@ -62,21 +62,21 @@ main {
 textarea,
 pre {
     width: 100%;
-    border: 1px solid #3a3a3a;
-    background-color: #1e1e1e;
+    border: 1px solid #3a3a3a; /* Subtle dark border */
+    background-color: #1e1e1e; /* Editor/Output background */
     color: #cccccc;
     padding: 15px;
     resize: none;
     box-sizing: border-box;
     font-size: 0.95em;
     line-height: 1.5;
-    border-radius: 8px; /* Slightly more rounded */
-    box-shadow: 0 0 15px rgba(0, 0, 0, 0.4); /* Subtle glow effect */
+    border-radius: 8px; 
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.4); 
 }
 
 #code-input {
     flex-grow: 1;
-    min-height: 400px; /* Increased height */
+    min-height: 400px; 
 }
 
 .input-container textarea,
@@ -86,8 +86,8 @@ pre {
 }
 
 .header-bar {
-    background-color: #2a2a2a; /* Slightly lighter bar */
-    color: #4CAF50; /* Green accent for section headers */
+    background-color: #2a2a2a; /* Header bar background */
+    color: #e0e0e0; 
     padding: 10px 15px;
     margin-bottom: 5px;
     border-radius: 8px 8px 0 0;
@@ -99,11 +99,12 @@ pre {
 .header-bar h2 {
     margin: 0;
     font-size: 1.1em;
+    color: #8ab4f8; /* Light blue accent for titles */
 }
 
 .run-control {
     display: flex;
-    flex-wrap: wrap; /* Wrap buttons on small screens */
+    flex-wrap: wrap; 
     align-items: center;
     gap: 15px;
     padding: 20px 0 0 0;
@@ -150,12 +151,13 @@ pre {
     box-shadow: none;
 }
 
+/* Updated Colors for Success/Error in Dark Mode */
 .success {
-    color: #4CAF50;
+    color: #4CAF50; /* Green for success */
     font-weight: bold;
 }
 
 .error {
-    color: #f44336;
+    color: #f44336; /* Red for error */
     font-weight: bold;
 }
