@@ -1,5 +1,5 @@
 body {
-    font-family: 'Roboto Mono', monospace;
+    font-family: 'Roboto Mono', monospace; /* Dark background */
     background-color: #121212; /* Dark background */
     color: #e0e0e0; /* Light text color */
     margin: 0;
@@ -44,6 +44,7 @@ main {
     flex: 3;
     display: flex;
     flex-direction: column;
+    /* এডিটর সেকশনটি বাকি স্পেস ব্যবহার করবে */
 }
 
 .io-section {
@@ -68,15 +69,17 @@ pre {
     padding: 15px;
     resize: none;
     box-sizing: border-box;
-    font-size: 0.95em;
+    font-size: 1.0em; 
     line-height: 1.5;
     border-radius: 8px; 
     box-shadow: 0 0 15px rgba(0, 0, 0, 0.4); 
 }
 
-#code-input {
-    flex-grow: 1;
-    min-height: 400px; 
+/* নতুন CSS: কোড এডিটরকে ইনপুট/আউটপুটের সমান উচ্চতায় আনা */
+#code-editor {
+    flex-grow: 1; /* বাকি সব স্পেস নেবে */
+    min-height: 300px; /* একটি যুক্তিসঙ্গত ন্যূনতম উচ্চতা */
+    height: 100%; /* ফ্ল্যাক্স কন্টেইনারের উচ্চতা ব্যবহার করবে */
 }
 
 .input-container textarea,
@@ -161,5 +164,3 @@ pre {
     color: #f44336; /* Red for error */
     font-weight: bold;
 }
-
-
