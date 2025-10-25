@@ -1,363 +1,320 @@
-# Import necessary libraries
-from flask import Flask, render_template, request, jsonify
-import ply.lex as lex
-import ply.yacc as yacc
-import sys
-import io
+import json
+import os
+import subprocess
+import tempfile
+import keyword
+from flask import Flask, jsonify, render_template, request
 
-# Initialize the Flask application
-app = Flask(__name__)
+# --- Flask Initialization ---
+# Added template_folder='templates' for Render deployment stability
+app = Flask(__name__, template_folder='templates')
 
-# --- 1. LEXICAL ANALYSIS (Lexer) ---
-tokens = (
-    'ID', 'NUMBER', 'STRING',
-    'PLUS', 'MINUS', 'TIMES', 'DIVIDE', 'ASSIGN', 'EQUALS',
-    'LPAREN', 'RPAREN', 'NEWLINE',
-    'PRINT_KW'
-)
+# --- Lexer Helper Function (Phase 1) ---
+PYTHON_KEYWORDS = set(keyword.kwlist)
+PYTHON_BUILTINS = set(dir(__builtins__))
 
-t_PLUS = r'\+'
-t_MINUS = r'-'
-t_TIMES = r'\*'
-t_DIVIDE = r'/'
-t_ASSIGN = r'='
-t_EQUALS = r'=='
-t_LPAREN = r'\('
-t_RPAREN = r'\)'
-
-def t_PRINT_KW(t):
-    r'print'
-    return t
-
-def t_ID(t):
-    r'[a-zA-Z_][a-zA-Z0-9_]*'
-    # Check for reserved keywords if needed, but 'print' is handled above
-    return t
-
-def t_NUMBER(t):
-    r'\d+(\.\d+)?'
-    t.value = float(t.value)
-    return t
-
-def t_STRING(t):
-    r'"([^"\\]|\\.)*"'
-    t.value = t.value[1:-1] # remove quotes
-    return t
-
-def t_NEWLINE(t):
-    r'\n+'
-    t.lexer.lineno += len(t.value)
-    return t
-
-t_ignore = ' \t'
-
-def t_error(t):
-    t.value = f"Lexical Error: Illegal character '{t.value[0]}'"
-    t.lexer.skip(1)
-    return t # Return the token so parser can detect the error state
-
-# Build the lexer
-lexer = lex.lex()
-
-# --- Data Structures for Semantic/ICG ---
-class ASTNode:
-    """Abstract Syntax Tree Node"""
-    def __init__(self, type, children=None, value=None, dtype='UNKNOWN', temp=None):
-        self.type = type
-        self.children = children if children is not None else []
-        self.value = value
-        self.dtype = dtype
-        self.temp = temp # Used for ICG
-
-    def __repr__(self):
-        return f"Node({self.type}, {self.value}, dtype={self.dtype})"
-
-# Global Symbol Table (Dictionary for simplicity)
-symbol_table = {}
-
-# Intermediate Code List
-intermediate_code = []
-temp_counter = 0
-
-def new_temp():
-    global temp_counter
-    temp_counter += 1
-    return f"t{temp_counter}"
-
-# --- 2. SYNTAX ANALYSIS (Parser) ---
-# Grammar Rules (Context-Free Grammar)
-def p_program(p):
-    'program : statements'
-    p[0] = ASTNode('PROGRAM', [p[1]])
-
-def p_statements_multiple(p):
-    'statements : statements statement'
-    if isinstance(p[1], list):
-        p[0] = p[1] + [p[2]]
-    else:
-        p[0] = [p[1], p[2]]
-
-def p_statements_single(p):
-    'statements : statement'
-    p[0] = [p[1]]
-
-def p_statement_assign(p):
-    'statement : ID ASSIGN expression NEWLINE'
-    # Symbol Table Check 1: ID declaration (implicitly done here if not found)
-    p[0] = ASTNode('ASSIGNMENT', [ASTNode('ID', value=p[1]), p[3]], op='=', dtype=p[3].dtype)
-
-def p_statement_print(p):
-    'statement : PRINT_KW LPAREN ID RPAREN NEWLINE'
-    p[0] = ASTNode('PRINT', [ASTNode('ID', value=p[3])], op='print')
-
-def p_expression_binop(p):
-    '''expression : expression PLUS expression
-                  | expression MINUS expression
-                  | expression TIMES expression
-                  | expression DIVIDE expression'''
-    p[0] = ASTNode('BINOP', [p[1], p[3]], op=p[2], dtype='FLOAT') # Assume float for arithmetic result
-
-def p_expression_group(p):
-    'expression : LPAREN expression RPAREN'
-    p[0] = p[2]
-
-def p_expression_id(p):
-    'expression : ID'
-    p[0] = ASTNode('ID', value=p[1], dtype=symbol_table.get(p[1], 'UNKNOWN')) # Check type from symbol table
-
-def p_expression_number(p):
-    'expression : NUMBER'
-    dtype = 'INT' if p[1] == int(p[1]) else 'FLOAT'
-    p[0] = ASTNode('LITERAL', value=p[1], dtype=dtype)
-
-def p_expression_string(p):
-    'expression : STRING'
-    p[0] = ASTNode('LITERAL', value=p[1], dtype='STRING')
-
-def p_error(p):
-    if p:
-        raise SyntaxError(f"Syntax Error: Invalid token '{p.value}' at line {p.lineno}")
-    else:
-        raise SyntaxError("Syntax Error: Unexpected end of input.")
-
-# Build the parser
-parser = yacc.yacc(debug=False)
-
-# --- 3. SEMANTIC ANALYSIS & 4. ICG (Combined AST Traversal) ---
-def traverse_ast(node):
-    """Recursively traverses the AST, performs semantic checks, and generates ICG."""
-    global intermediate_code, symbol_table
-
-    if not isinstance(node, ASTNode):
-        return
-
-    # Semantic Check & ICG Generation for Children
-    for child in node.children:
-        traverse_ast(child)
-
-    # Post-order Traversal Logic
-    if node.type == 'LITERAL':
-        node.temp = new_temp()
-        intermediate_code.append(f"{node.temp} = {node.value}")
-
-    elif node.type == 'ID':
-        if node.value not in symbol_table:
-            # Simple declaration upon first use (not strict, but for simulation)
-            symbol_table[node.value] = node.dtype if node.dtype != 'UNKNOWN' else 'INT' 
-            
-        # Update type from Symbol Table if known
-        node.dtype = symbol_table[node.value]
-        node.temp = node.value # Use the ID name as its temporary name for simplicity
-        
-    elif node.type == 'BINOP':
-        # Semantic Check 2: Type compatibility (Simplified)
-        if node.children[0].dtype != node.children[1].dtype and 'STRING' in [node.children[0].dtype, node.children[1].dtype]:
-             raise TypeError(f"Type Error: Cannot perform arithmetic on {node.children[0].dtype} and {node.children[1].dtype}")
-
-        # ICG: Generate three-address code
-        node.temp = new_temp()
-        intermediate_code.append(f"{node.temp} = {node.children[0].temp} {node.op} {node.children[1].temp}")
-        node.dtype = node.children[0].dtype # Inherit type from first operand
-
-    elif node.type == 'ASSIGNMENT':
-        # Semantic Check 3: Type Assignment Compatibility
-        target_id = node.children[0].value
-        source_dtype = node.children[1].dtype
-        
-        # Update Symbol Table with the assigned type
-        symbol_table[target_id] = source_dtype
-        
-        # ICG
-        intermediate_code.append(f"{target_id} = {node.children[1].temp}")
-        
-    elif node.type == 'PRINT':
-        target_id = node.children[0].value
-        if target_id not in symbol_table:
-             raise NameError(f"Name Error: Variable '{target_id}' used before assignment.")
-        
-        # ICG
-        intermediate_code.append(f"print {target_id}")
-
-    elif node.type == 'PROGRAM':
-        # Handle list of statements
-        if node.children and isinstance(node.children[0], list):
-            for statement in node.children[0]:
-                traverse_ast(statement)
-
-
-# --- Execution Simulation ---
-def simulate_execution(icg_code, initial_symbol_table):
-    """Simulates execution of Three-Address Code."""
-    memory = initial_symbol_table.copy()
-    output_lines = []
+def lexical_analysis(code):
+    """Performs Lexical Analysis (Phase 1)."""
+    import re
+    # Simplified token splitting
+    tokens = re.findall(r'[a-zA-Z_][a-zA-Z0-9_]*|"[^"]*"|\S', code)
     
-    for instruction in icg_code:
-        try:
-            if '=' in instruction and 'print' not in instruction and instruction.split('=')[0].strip() in ['t' + str(i) for i in range(1, 100)]:
-                # Handle assignment/arithmetic (tX = ...)
-                target, expression = instruction.split('=', 1)
-                target = target.strip()
-                
-                # Simple replacement of variables with values
-                safe_expression = expression.strip()
-                for var, val in memory.items():
-                    if isinstance(val, (int, float)):
-                        safe_expression = safe_expression.replace(var, str(val))
-                    elif isinstance(val, str):
-                        safe_expression = safe_expression.replace(var, f"'{val}'")
-                
-                # Evaluate the expression safely
-                if expression.count('+') + expression.count('-') + expression.count('*') + expression.count('/') > 0:
-                     # This is a calculation
-                    result = eval(safe_expression.replace('\'', '')) 
-                    memory[target] = result
-                else:
-                    # Direct assignment (e.g., x = 10 or t1 = 10)
-                    value = eval(expression.strip().replace('\'', '"'))
-                    memory[target] = value
-                    
-            elif '=' in instruction:
-                # Handle assignment to ID (x = tX or x = 10)
-                target, source = instruction.split('=', 1)
-                target = target.strip()
-                source = source.strip()
-                
-                if source in memory:
-                    memory[target] = memory[source]
-                else:
-                    memory[target] = eval(source.replace('\'', '"'))
-                
-            elif instruction.startswith('print'):
-                # Handle print
-                var_name = instruction.split('print')[1].strip()
-                if var_name in memory:
-                    output_lines.append(str(memory[var_name]))
-                else:
-                    output_lines.append(f"Error: Variable {var_name} not found.")
-
-        except Exception as e:
-            output_lines.append(f"Execution Error: {e} in instruction '{instruction}'")
-            return "\n".join(output_lines)
+    token_list = []
+    
+    for token in tokens:
+        token_type = 'UNKNOWN'
+        if token in PYTHON_KEYWORDS:
+            token_type = 'KEYWORD'
+        elif token in PYTHON_BUILTINS:
+            token_type = 'BUILTIN_FUNCTION'
+        elif (token.startswith('"') and token.endswith('"')) or \
+             (token.startswith("'") and token.endswith("'")):
+            token_type = 'STRING_LITERAL'
+        elif token.replace('.', '', 1).isdigit():
+            token_type = 'NUMERIC_LITERAL'
+        elif not token.isalnum() and len(token) == 1:
+            token_type = 'OPERATOR/SYMBOL'
+        elif token.isidentifier():
+            token_type = 'IDENTIFIER'
             
-    return "\n".join(output_lines)
+        if token.strip() and token != '#':
+            token_list.append({'token': token, 'type': token_type})
+
+    return token_list
+
+# --- Syntax Analysis (Phase 2) ---
+def syntax_analysis(token_list):
+    """
+    Performs symbolic Syntax Analysis (Phase 2).
+    Checks for simple assignment or print statements.
+    """
+    # Simplified Grammar Check: ID = LITERAL or print(ID/LITERAL)
+    
+    # 1. Assignment Check (ID = LITERAL)
+    if len(token_list) == 3 and \
+       token_list[0]['type'] == 'IDENTIFIER' and \
+       token_list[1]['token'] == '=' and \
+       (token_list[2]['type'] == 'NUMERIC_LITERAL' or token_list[2]['type'] == 'STRING_LITERAL' or token_list[2]['type'] == 'IDENTIFIER'):
+        
+        # Symbolically create an AST/Parse Tree
+        ast = {
+            "type": "Assignment",
+            "target": token_list[0]['token'],
+            "value": token_list[2]['token']
+        }
+        return f"Syntax OK (Assignment Statement)\nParse Tree (Symbolic):\n  ASSIGN -> ID ({ast['target']}) = VALUE ({ast['value']})"
+
+    # 2. Print Check (print(ID/LITERAL)) - Requires more complex token structure (print ( ID ) )
+    if len(token_list) >= 4 and \
+       token_list[0]['token'] == 'print' and \
+       token_list[1]['token'] == '(' and \
+       token_list[-1]['token'] == ')':
+        
+        content = [t['token'] for t in token_list[2:-1]]
+        
+        return f"Syntax OK (Function Call: print)\nParse Tree (Symbolic):\n  CALL -> print ( {', '.join(content)} )"
+        
+    return "Syntax OK (Complex or Untested Grammar)\nParse Tree (Symbolic): Structure too complex for simple simulation."
+
+# --- Semantic Analysis (Phase 3) ---
+def semantic_analysis(token_list):
+    """
+    Performs symbolic Semantic Analysis (Phase 3).
+    Checks for type compatibility in a very basic assignment.
+    """
+    symbol_table = {}
+    output = []
+    
+    # Simulate Symbol Table update and Type Checking
+    for i, token in enumerate(token_list):
+        if token['type'] == 'IDENTIFIER' and i + 1 < len(token_list) and token_list[i+1]['token'] == '=':
+            # Found an assignment: ID = VALUE
+            if i + 2 < len(token_list):
+                value_token = token_list[i+2]
+                
+                # Simple Type Inference
+                inferred_type = 'INT/FLOAT' if value_token['type'] == 'NUMERIC_LITERAL' else 'STRING'
+                
+                # Update Symbol Table
+                symbol_table[token['token']] = inferred_type
+                output.append(f"  Symbol Table: '{token['token']}' added with Type: {inferred_type}")
+
+    if not symbol_table:
+        return "Semantic OK. No variable assignments found for type checking.\n"
+    
+    output.append("\nSemantic Check Result: OK. Basic Type Consistency Assumed.")
+    return "Symbol Table & Type Check (Symbolic):\n" + "\n".join(output)
+
+# --- Intermediate Code Generation (Phase 4) ---
+def intermediate_code_generation(token_list):
+    """
+    Performs symbolic Intermediate Code Generation (Phase 4) using Three-Address Code (TAC).
+    """
+    tac_instructions = []
+    temp_counter = 1
+    
+    # Look for simple arithmetic assignments (ID = ID OP ID)
+    for i in range(len(token_list) - 4):
+        # Pattern: ID = ID OP ID
+        if token_list[i]['type'] == 'IDENTIFIER' and \
+           token_list[i+1]['token'] == '=' and \
+           token_list[i+2]['type'] == 'IDENTIFIER' and \
+           token_list[i+3]['token'] in ['+', '-', '*', '/'] and \
+           token_list[i+4]['type'] == 'IDENTIFIER':
+            
+            op = token_list[i+3]['token']
+            arg1 = token_list[i+2]['token']
+            arg2 = token_list[i+4]['token']
+            target = token_list[i]['token']
+            
+            # Simple TAC generation: t1 = arg1 OP arg2; target = t1
+            temp_var = f"t{temp_counter}"
+            tac_instructions.append(f"{temp_var} = {arg1} {op} {arg2}")
+            tac_instructions.append(f"{target} = {temp_var}")
+            temp_counter += 1
+            
+            return "Intermediate Code Generation (Symbolic TAC):\n" + "\n".join(tac_instructions)
+
+    return "Intermediate Code Generation (Symbolic TAC):\nTAC Generation skipped. No complex arithmetic assignment found (e.g., a = b + c)."
 
 
-# --- FLASK ROUTES ---
+# --- Helper Functions for Error Handling (Cleaned) ---
+
+def clean_error_message(error_str):
+    if "Execution timed out" in error_str:
+        return error_str
+
+    lines = error_str.strip().split('\n')
+    
+    if not lines:
+        return "Unknown Error (No traceback found)."
+    
+    main_error_line = lines[-1].strip()
+    
+    try:
+        error_type, error_msg = main_error_line.split(':', 1)
+        error_type = error_type.strip()
+        error_msg = error_msg.strip()
+    except ValueError:
+        error_type = main_error_line.split(':', 1)[0].strip()
+        error_msg = main_error_line
+        
+    suggestion = ""
+    
+    if "NameError" in error_type:
+        if "'prnt' is not defined" in error_msg:
+            suggestion = "Suggestion: Use 'print'. 'prnt' is not a function."
+        elif "'inp' is not defined" in error_msg:
+            suggestion = "Suggestion: Use 'input'. 'inp' is not a function."
+        else:
+            suggestion = "Suggestion: A variable or function was used but not defined."
+
+    elif "SyntaxError" in error_type:
+        suggestion = "Suggestion: Check for issues with colons (:), indentation, parentheses, or quotation marks."
+
+    elif "EOFError" in error_type:
+        suggestion = "Suggestion: Not enough input was provided for your code. Check the 'User Input' box."
+        
+    elif "TypeError" in error_type:
+        suggestion = "Suggestion: Check data types. An operation is likely running on incompatible types (e.g., string + number)."
+
+    clean_message = f"Error Type: {error_type}\nMessage: {error_msg}"
+    if suggestion:
+        clean_message += f"\n\nIntelligent Suggestion:\n{suggestion}"
+        
+    return clean_message
+
+
+# --- Flask Routes ---
+
 @app.route('/')
 def index():
-    # রেন্ডার করে index.html
+    # টেমপ্লেট সফলভাবে লোড হবে
     return render_template('index.html')
 
-
-@app.route('/run', methods=['POST'])
-def run_code_route():
-    global symbol_table, intermediate_code, temp_counter
-    
+# --- Lexical Analysis Route (Phase 1) ---
+@app.route('/lex', methods=['POST'])
+def get_tokens():
     data = request.get_json()
     code = data.get('code', '')
     
-    # Reset global state for each run
-    symbol_table = {}
-    intermediate_code = []
-    temp_counter = 0
-
     try:
-        # Lexing and Parsing
-        lexer.input(code)
-        # We drain the lexer to perform a simple Lexical Scan first and capture errors
-        lexical_errors = []
-        tokens_list = []
-        while True:
-            tok = lexer.token()
-            if not tok:
-                break
-            if tok.type == 'error':
-                 lexical_errors.append(tok.value)
-                 
-            tokens_list.append(tok) # Collect tokens for the parser
-
-        if lexical_errors:
-            # If Lexical Errors are found, stop before parsing
-            error_message = "\n".join(lexical_errors)
-            return jsonify({
-                "output": f"--- Lexical Errors Detected ---\n{error_message}\n--- Syntax Error ---\nSkipped\n--- Semantic Analysis ---\nSkipped\n--- Intermediate Code Generation ---\nSkipped\n--- Simulated Target Execution ---\nSkipped",
-                "error": "Lexical Error Found. See output."
-            })
-
-        # Reset lexer state for the parser to use
-        lexer.input(code)
+        tokens = lexical_analysis(code)
         
-        # Parsing (Creates AST)
-        ast_root = parser.parse(code, lexer=lexer)
+        formatted_output = "--- Phase 1: Lexical Analysis (Tokens) ---\n"
+        for item in tokens:
+            formatted_output += f"TOKEN: '{item['token']}' \t TYPE: {item['type']}\n"
         
-        if not ast_root:
-            raise SyntaxError("Syntax Error: Could not parse the input code.")
-            
-        # Semantic Analysis and ICG
-        traverse_ast(ast_root)
-        
-        # Execution Simulation
-        simulated_output = simulate_execution(intermediate_code, symbol_table.copy())
-        
-        # Format the Symbol Table and ICG for display
-        st_output = "--- Semantic Analysis (Symbol Table) ---\n"
-        st_output += "\n".join([f"ID: {k}, Type: {v}" for k, v in symbol_table.items()])
-        st_output += "\n--------------------"
-        
-        icg_output = "--- Intermediate Code Generation ---\n"
-        icg_output += "\n".join(intermediate_code)
-        icg_output += "\n--------------------------------"
-        
-        exec_output = "--- Simulated Target Execution ---\n"
-        exec_output += simulated_output
-
-        # Combine all outputs for the frontend to split
-        final_output = f"{st_output}\n{icg_output}\n{exec_output}"
-        
-        return jsonify({
-            "output": final_output,
-            "error": None
-        })
-        
-    except SyntaxError as e:
-        error_msg = str(e)
-        return jsonify({
-            "output": f"--- Syntax Error ---\n{error_msg}\n--- Semantic Analysis ---\nSkipped\n--- Intermediate Code Generation ---\nSkipped\n--- Simulated Target Execution ---\nSkipped",
-            "error": "Syntax Error Found. See output."
-        })
-    except (TypeError, NameError) as e:
-        error_msg = str(e)
-        return jsonify({
-            "output": f"--- Semantic Error ---\n{error_msg}\n--- Intermediate Code Generation ---\nSkipped\n--- Simulated Target Execution ---\nSkipped",
-            "error": "Semantic Error Found. See output."
-        })
+        return jsonify({'output': formatted_output, 'error': ''})
     except Exception as e:
-        return jsonify({
-            "output": f"--- Unexpected Error ---\n{str(e)}\n--- Compilation Aborted ---",
-            "error": "An unexpected error occurred."
-        })
+        return jsonify({'output': '', 'error': f"Lexer Error: {str(e)}"})
 
+# --- Syntax Analysis Route (Phase 2) ---
+@app.route('/syntax', methods=['POST'])
+def get_syntax():
+    data = request.get_json()
+    code = data.get('code', '')
+    
+    try:
+        # Pipelining: Lexer -> Syntax
+        tokens = lexical_analysis(code)
+        output = syntax_analysis(tokens)
+        
+        formatted_output = "--- Phase 2: Syntax Analysis (Parse Tree/AST) ---\n"
+        formatted_output += output
+        
+        return jsonify({'output': formatted_output, 'error': ''})
+    except Exception as e:
+        return jsonify({'output': '', 'error': f"Syntax Analyzer Error: {str(e)}"})
+
+# --- Semantic Analysis Route (Phase 3) ---
+@app.route('/semantic', methods=['POST'])
+def get_semantic():
+    data = request.get_json()
+    code = data.get('code', '')
+    
+    try:
+        # Pipelining: Lexer -> Semantic (directly uses tokens for simplicity)
+        tokens = lexical_analysis(code)
+        output = semantic_analysis(tokens)
+        
+        formatted_output = "--- Phase 3: Semantic Analysis (Symbol Table/Type Check) ---\n"
+        formatted_output += output
+        
+        return jsonify({'output': formatted_output, 'error': ''})
+    except Exception as e:
+        return jsonify({'output': '', 'error': f"Semantic Analyzer Error: {str(e)}"})
+
+# --- Intermediate Code Generation Route (Phase 4) ---
+@app.route('/icg', methods=['POST'])
+def get_icg():
+    data = request.get_json()
+    code = data.get('code', '')
+    
+    try:
+        # Pipelining: Lexer -> ICG (directly uses tokens for simplicity)
+        tokens = lexical_analysis(code)
+        output = intermediate_code_generation(tokens)
+        
+        formatted_output = "--- Phase 4: Intermediate Code Generation (TAC) ---\n"
+        formatted_output += output
+        
+        return jsonify({'output': formatted_output, 'error': ''})
+    except Exception as e:
+        return jsonify({'output': '', 'error': f"ICG Error: {str(e)}"})
+
+
+# Existing Code Execution Route (Phase 7: Execution)
+@app.route('/run', methods=['POST'])
+def run_code():
+    output = ""
+    error = ""
+    
+    data = request.get_json()
+    code = data.get('code', '')
+    user_input = data.get('input', '')
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        code_file = os.path.join(tmpdir, 'code.py')
+        input_file = os.path.join(tmpdir, 'input.txt')
+
+        with open(code_file, 'w', encoding='utf-8') as f:
+            f.write(code)
+
+        with open(input_file, 'w', encoding='utf-8') as f:
+            f.write(user_input)
+
+        cmd = ['python', code_file]
+        
+        with open(input_file, 'r', encoding='utf-8') as input_fd:
+            try:
+                process = subprocess.run(
+                    cmd,
+                    stdin=input_fd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=5,
+                    text=True,
+                    check=False
+                )
+                
+                output = process.stdout.strip()
+                raw_error = process.stderr.strip()
+                
+                if raw_error:
+                    error = clean_error_message(raw_error)
+                    output = output if output else "" # Ensure output is set
+
+            except subprocess.TimeoutExpired:
+                error = clean_error_message("Error: Execution timed out (Exceeded 5 seconds).")
+                output = ""
+
+            except Exception as e:
+                error = f"An unexpected server error occurred: {str(e)}"
+                output = ""
+
+    return jsonify({'output': output, 'error': error})
 
 if __name__ == '__main__':
-    # Flask runs on port 5000 by default
     app.run(debug=True)
+
