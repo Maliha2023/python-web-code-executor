@@ -16,13 +16,19 @@ PYTHON_BUILTINS = set(dir(__builtins__))
 def lexical_analysis(code):
     """Performs Lexical Analysis (Phase 1)."""
     import re
-    # Simplified token splitting
+    # Simplified token splitting: Identifiers, Strings (single/double quote), or any non-space character
+    # This pattern is simplified for demonstration purposes and covers basic Python structure.
     tokens = re.findall(r'[a-zA-Z_][a-zA-Z0-9_]*|"[^"]*"|\S', code)
     
     token_list = []
     
     for token in tokens:
         token_type = 'UNKNOWN'
+        
+        # Check for multi-line comments or single-line comments starting with #
+        if token.startswith('#'):
+             continue
+        
         if token in PYTHON_KEYWORDS:
             token_type = 'KEYWORD'
         elif token in PYTHON_BUILTINS:
@@ -37,7 +43,7 @@ def lexical_analysis(code):
         elif token.isidentifier():
             token_type = 'IDENTIFIER'
             
-        if token.strip() and token != '#':
+        if token.strip(): # Ensure token is not just whitespace
             token_list.append({'token': token, 'type': token_type})
 
     return token_list
@@ -50,7 +56,7 @@ def syntax_analysis(token_list):
     """
     # Simplified Grammar Check: ID = LITERAL or print(ID/LITERAL)
     
-    # 1. Assignment Check (ID = LITERAL)
+    # 1. Assignment Check (ID = LITERAL/ID)
     if len(token_list) == 3 and \
        token_list[0]['type'] == 'IDENTIFIER' and \
        token_list[1]['token'] == '=' and \
@@ -64,7 +70,7 @@ def syntax_analysis(token_list):
         }
         return f"Syntax OK (Assignment Statement)\nParse Tree (Symbolic):\n  ASSIGN -> ID ({ast['target']}) = VALUE ({ast['value']})"
 
-    # 2. Print Check (print(ID/LITERAL)) - Requires more complex token structure (print ( ID ) )
+    # 2. Print Check (print(ID/LITERAL))
     if len(token_list) >= 4 and \
        token_list[0]['token'] == 'print' and \
        token_list[1]['token'] == '(' and \
@@ -74,7 +80,18 @@ def syntax_analysis(token_list):
         
         return f"Syntax OK (Function Call: print)\nParse Tree (Symbolic):\n  CALL -> print ( {', '.join(content)} )"
         
-    return "Syntax OK (Complex or Untested Grammar)\nParse Tree (Symbolic): Structure too complex for simple simulation."
+    # 3. Arithmetic Assignment Check (ID = ID OP ID)
+    if len(token_list) == 5 and \
+       token_list[0]['type'] == 'IDENTIFIER' and \
+       token_list[1]['token'] == '=' and \
+       token_list[2]['type'] == 'IDENTIFIER' and \
+       token_list[3]['token'] in ['+', '-', '*', '/'] and \
+       token_list[4]['type'] == 'IDENTIFIER':
+        
+        return f"Syntax OK (Arithmetic Assignment)\nParse Tree (Symbolic):\n  ASSIGN -> ID ({token_list[0]['token']}) = BINOP ({token_list[3]['token']}) [ {token_list[2]['token']}, {token_list[4]['token']} ]"
+
+
+    return "Syntax OK (Complex or Untested Grammar)\nParse Tree (Symbolic): Structure too complex for simple simulation. Checking full Python execution path instead."
 
 # --- Semantic Analysis (Phase 3) ---
 def semantic_analysis(token_list):
@@ -118,9 +135,9 @@ def intermediate_code_generation(token_list):
         # Pattern: ID = ID OP ID
         if token_list[i]['type'] == 'IDENTIFIER' and \
            token_list[i+1]['token'] == '=' and \
-           token_list[i+2]['type'] == 'IDENTIFIER' and \
+           (token_list[i+2]['type'] == 'IDENTIFIER' or token_list[i+2]['type'] == 'NUMERIC_LITERAL') and \
            token_list[i+3]['token'] in ['+', '-', '*', '/'] and \
-           token_list[i+4]['type'] == 'IDENTIFIER':
+           (token_list[i+4]['type'] == 'IDENTIFIER' or token_list[i+4]['type'] == 'NUMERIC_LITERAL'):
             
             op = token_list[i+3]['token']
             arg1 = token_list[i+2]['token']
@@ -135,48 +152,51 @@ def intermediate_code_generation(token_list):
             
             return "Intermediate Code Generation (Symbolic TAC):\n" + "\n".join(tac_instructions)
 
-    return "Intermediate Code Generation (Symbolic TAC):\nTAC Generation skipped. No complex arithmetic assignment found (e.g., a = b + c)."
+    # Simple assignment handling (ID = LITERAL/ID)
+    if len(token_list) == 3 and token_list[1]['token'] == '=':
+        tac_instructions.append(f"{token_list[0]['token']} = {token_list[2]['token']}")
+        return "Intermediate Code Generation (Symbolic TAC):\n" + "\n".join(tac_instructions)
+        
+    return "Intermediate Code Generation (Symbolic TAC):\nTAC Generation skipped. No simple assignment or arithmetic found."
 
 
 # --- Helper Functions for Error Handling (Cleaned) ---
 
 def clean_error_message(error_str):
+    # Added explicit handling for the timeout message for clarity
     if "Execution timed out" in error_str:
-        return error_str
+        return "Timeout Error: Code execution exceeded the 5 second limit (likely an infinite loop)."
 
     lines = error_str.strip().split('\n')
     
     if not lines:
         return "Unknown Error (No traceback found)."
     
-    main_error_line = lines[-1].strip()
+    # Try to find the last relevant error line (ignoring boilerplate traceback)
+    main_error_line = next((line for line in reversed(lines) if ':' in line), lines[-1]).strip()
     
     try:
         error_type, error_msg = main_error_line.split(':', 1)
         error_type = error_type.strip()
         error_msg = error_msg.strip()
     except ValueError:
-        error_type = main_error_line.split(':', 1)[0].strip()
+        # Fallback for errors without a clear ': ' separator
+        error_type = main_error_line.split(':', 1)[0].strip() if ':' in main_error_line else "Runtime Error"
         error_msg = main_error_line
         
     suggestion = ""
     
     if "NameError" in error_type:
-        if "'prnt' is not defined" in error_msg:
-            suggestion = "Suggestion: Use 'print'. 'prnt' is not a function."
-        elif "'inp' is not defined" in error_msg:
-            suggestion = "Suggestion: Use 'input'. 'inp' is not a function."
-        else:
-            suggestion = "Suggestion: A variable or function was used but not defined."
+        suggestion = "Suggestion: A variable or function was used but not defined. Check for spelling errors or missing initialization."
 
     elif "SyntaxError" in error_type:
-        suggestion = "Suggestion: Check for issues with colons (:), indentation, parentheses, or quotation marks."
+        suggestion = "Suggestion: Check for issues with colons (:), indentation, parentheses, or quotation marks. The structure of your code is invalid."
 
     elif "EOFError" in error_type:
-        suggestion = "Suggestion: Not enough input was provided for your code. Check the 'User Input' box."
+        suggestion = "Suggestion: The 'input()' function was called but no content was provided in the 'User Input' box."
         
     elif "TypeError" in error_type:
-        suggestion = "Suggestion: Check data types. An operation is likely running on incompatible types (e.g., string + number)."
+        suggestion = "Suggestion: Check data types. An operation is likely running on incompatible types (e.g., trying to add a string and a number)."
 
     clean_message = f"Error Type: {error_type}\nMessage: {error_msg}"
     if suggestion:
@@ -306,6 +326,7 @@ def run_code():
                     output = output if output else "" # Ensure output is set
 
             except subprocess.TimeoutExpired:
+                # Timeout happened. Generate the custom, clean error message here.
                 error = clean_error_message("Error: Execution timed out (Exceeded 5 seconds).")
                 output = ""
 
@@ -317,4 +338,3 @@ def run_code():
 
 if __name__ == '__main__':
     app.run(debug=True)
-
