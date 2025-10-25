@@ -1,123 +1,47 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="bn">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Compiler Phase Analyzer</title>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <title>Python Web Code Executor</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <!-- Load a programming font -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <header>
-        <h1>Compiler Phase Analyzer (Python Edition)</h1>
-        <p>A simple simulation of compiler phases using Flask and Subprocess Execution.</p>
+        <!-- টাইটেল পরিবর্তন করা হলো -->
+        <h1>Python Web Code Executor</h1>
+        <p>A simple environment to run and test Python code in the browser.</p>
     </header>
-
     <main>
-        <!-- Editor Section (Left) -->
         <div class="editor-section">
             <div class="header-bar">
                 <h2>Code Editor (Python)</h2>
             </div>
-            <textarea id="code-input" placeholder="Enter your Python code here..."></textarea>
+            <textarea id="code-editor" spellcheck="false"></textarea>
 
             <div class="run-control">
-                <button id="run-button" onclick="runPhase('run')">Run Code</button>
-                <button onclick="runPhase('lex')">Phase 1: Lexical Analysis</button>
-                <button onclick="runPhase('syntax')">Phase 2: Syntax Analysis</button>
-                <button onclick="runPhase('semantic')">Phase 3: Semantic Analysis</button>
-                <button onclick="runPhase('icg')">Phase 4: Intermediate Code Generation</button>
+                <button id="run-button">Run Code</button>
+                <!-- কম্পাইলার ফেজের বাটনগুলি সরিয়ে দেওয়া হলো -->
             </div>
         </div>
-
-        <!-- IO Section (Right) -->
+        
         <div class="io-section">
             <div class="input-output-container">
-                <!-- User Input -->
-                <div class="input-container">
-                    <div class="header-bar">
-                        <h2>User Input (Optional)</h2>
-                    </div>
-                    <textarea id="user-input" placeholder="Enter input values here, separated by new lines if needed."></textarea>
+                <div class="header-bar">
+                    <h2>User Input (Optional)</h2>
                 </div>
-
-                <!-- Output / Errors -->
-                <div class="output-container">
-                    <div class="header-bar">
-                        <h2>Output / Errors</h2>
-                    </div>
-                    <pre id="output-area">Ready to analyze code or execute code.</pre>
+                <textarea id="user-input" placeholder="Enter input values here, separated by new lines if needed."></textarea>
+                
+                <div class="header-bar">
+                    <h2>Output / Errors</h2>
                 </div>
+                <!-- Output area: use <pre> for formatted output, but <textarea> to allow styling -->
+                <textarea id="output-area" readonly placeholder="Ready to execute code or analyze phases."></textarea>
             </div>
         </div>
     </main>
-
-    <script>
-        const codeInput = document.getElementById('code-input');
-        const userInput = document.getElementById('user-input');
-        const outputArea = document.getElementById('output-area');
-        const runButton = document.getElementById('run-button');
-
-        // default Python infinite loop code
-        codeInput.value = `# এই কোডটি একটি অনন্ত লুপ তৈরি করবে।
-# যেহেতু app.py ফাইলে ৫ সেকেন্ডের টাইমআউট সেট করা আছে, 
-# তাই ৫ সেকেন্ড পর কোডটি স্বয়ংক্রিয়ভাবে বন্ধ হয়ে যাবে।
-
-import time
-
-i = 0
-print("--- Infinite Loop Started ---")
-
-while True:
-    # প্রতিবার লুপ চলার সাথে সাথে একটি বার্তা প্রিন্ট হবে
-    print(f"Loop iteration: {i}")
-    i += 1
-    
-    # কোডটি ৫ সেকেন্ডের মধ্যে শেষ হবে নিশ্চিত করতে কোনো sleep() ব্যবহার করা হয়নি।
-    # এটি দ্রুত চলতে থাকবে যতক্ষণ না সার্ভার এটিকে বন্ধ করে দেয়।
-`;
-
-        async function runPhase(phase) {
-            outputArea.textContent = `Running ${phase} phase... Please wait.`;
-            runButton.disabled = true;
-            outputArea.className = '';
-
-            const code = codeInput.value;
-            const input = userInput.value;
-            const url = `/${phase}`;
-
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ code, input }),
-                });
-
-                const result = await response.json();
-
-                if (result.error) {
-                    // *** এরর হ্যান্ডলিং সুরক্ষিত করা হয়েছে: সার্ভার থেকে আসা পরিষ্কার এরর বার্তা প্রদর্শন করবে। ***
-                    outputArea.textContent = result.error;
-                    outputArea.className = 'error';
-                } else if (result.output) {
-                    outputArea.textContent = result.output;
-                    outputArea.className = 'success';
-                } else {
-                    // অপ্রত্যাশিত খালি রেসপন্সের জন্য ফলব্যাক
-                    outputArea.textContent = "Execution Complete, but no output generated.";
-                    outputArea.className = 'success';
-                }
-
-            } catch (e) {
-                // নেটওয়ার্ক বা JSON পার্সিং ত্রুটি
-                outputArea.textContent = `A communication error occurred: ${e.message}. Check the server logs.`;
-                outputArea.className = 'error';
-            } finally {
-                runButton.disabled = false;
-            }
-        }
-    </script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
