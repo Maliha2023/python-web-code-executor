@@ -1,8 +1,9 @@
 import sys
+import io
+from flask import Flask, request, jsonify
 
 # --- 1. Token Definitions ---
 
-# Class for defining various token types.
 # Token TYPES
 INTEGER       = 'INTEGER'
 FLOAT         = 'FLOAT'
@@ -13,7 +14,7 @@ LPAREN        = 'LPAREN'
 RPAREN        = 'RPAREN'
 EOF           = 'EOF'
 PRINT         = 'PRINT'
-VAR           = 'VAR' # For variable declarations
+VAR           = 'VAR'
 PLUS          = 'PLUS'
 MINUS         = 'MINUS'
 MUL           = 'MUL'
@@ -155,7 +156,7 @@ class Lexer(object):
         return Token(EOF, None)
 
 
-# --- 3. Parser and Error Recovery (AI Integration) ---
+# --- 3. Parser and Error Recovery ---
 
 # Abstract Syntax Tree (AST) Nodes
 class AST(object):
@@ -214,18 +215,15 @@ class Parser(object):
         self.current_token = self.lexer.get_next_token()
 
     def error(self, expected_types=None):
-        """
-        *** AI Integration Point 1: Error Reporting and Recovery Mode Trigger ***
-        Reports a syntax error and prepares for panic mode recovery.
-        """
+        """Reports a syntax error."""
         if expected_types:
             expected_str = ', '.join(expected_types)
             msg = f'Syntax Error: Expected one of {expected_str}, but found {self.current_token.type} ({self.current_token.value}) at position {self.lexer.pos}.'
         else:
             msg = f'Syntax Error: Unexpected token {self.current_token.type} ({self.current_token.value}) at position {self.lexer.pos}.'
         
-        # After reporting the error, we enter panic mode
-        print(f"\n*** ERROR DETECTED ***\n{msg}\n*** RECOVERY STARTING ***")
+        # In a real environment, this print goes to the captured output stream
+        print(f"\n*** PARSER ERROR DETECTED ***\n{msg}\n*** RECOVERY ATTEMPTED ***")
         return msg
 
     def eat(self, token_type):
@@ -246,14 +244,14 @@ class Parser(object):
         program : statement_list EOF
         """
         node = self.statement_list()
-        self.eat(EOF)
+        # Only eat EOF if we haven't hit a preceding error that caused synchronization to EOF
+        if self.current_token.type != EOF:
+            self.eat(EOF)
         return node
 
     def statement_list(self):
         """
-        *** AI Integration Point 2: Semicolon Recovery ***
-        Handles the list of statements. If a SEMICOLON is missing between statements,
-        it reports the error and attempts to synchronize for the next statement.
+        Handles the list of statements with semicolon recovery.
         """
         root = Compound()
         
@@ -274,12 +272,7 @@ class Parser(object):
 
     def synchronize(self, synchronizing_tokens):
         """
-        *** AI Integration Point 3: Core Panic Mode Recovery Logic ***
-
-        Panic Mode Recovery: After reporting an error, keep skipping tokens in the 
-        input stream until a 'safe token' is found. Safe tokens are those that can 
-        start a valid subsequent statement (like SEMICOLON, VAR, PRINT, or EOF).
-        This allows the compiler to continue parsing and find more errors.
+        Panic Mode Recovery: Skip tokens until a 'safe token' is found.
         """
         
         print(f"Attempting to synchronize... Looking for: {', '.join(synchronizing_tokens)}")
@@ -293,23 +286,20 @@ class Parser(object):
 
     def statement(self):
         """
-        statement : declaration_statement
-                  | assignment_statement
-                  | print_statement
-                  | empty
+        statement : declaration_statement | assignment_statement | print_statement | empty
         """
-        # Starting tokens for statements
         if self.current_token.type == VAR:
             return self.declaration_statement()
         elif self.current_token.type == ID:
             return self.assignment_statement()
         elif self.current_token.type == PRINT:
             return self.print_statement()
-        elif self.current_token.type == EOF:
+        elif self.current_token.type == EOF or self.current_token.type == SEMICOLON:
+            # This allows parsing to continue gracefully after synchronization 
             return NoOp()
         else:
             # Unexpected token - error and recovery
-            self.error(['VAR', 'ID', 'PRINT'])
+            self.error(['VAR', 'ID', 'PRINT', 'SEMICOLON'])
             
             # Skip this statement and advance to a recovery token
             self.synchronize([SEMICOLON, EOF, VAR, PRINT, ID])
@@ -328,6 +318,7 @@ class Parser(object):
         else:
             # Missing ID error - recovery needed
             self.error([ID])
+            self.synchronize([SEMICOLON, EOF, VAR, PRINT, ID])
             return None
 
     def assignment_statement(self):
@@ -345,6 +336,7 @@ class Parser(object):
         else:
             # Missing ASSIGN := error - recovery needed
             self.error([ASSIGN])
+            self.synchronize([SEMICOLON, EOF, VAR, PRINT, ID])
             return None
 
 
@@ -369,7 +361,13 @@ class Parser(object):
             elif token.type == MINUS:
                 self.eat(MINUS)
 
-            node = BinOp(left=node, op=token, right=self.term())
+            try:
+                node = BinOp(left=node, op=token, right=self.term())
+            except Exception as e:
+                # If term fails (e.g., missing operand), recovery is needed here
+                print(f"Error during expression parsing: {e}")
+                self.synchronize([SEMICOLON, EOF, VAR, PRINT, ID])
+                return node # Return current node and try to continue statement_list
 
         return node
 
@@ -392,12 +390,7 @@ class Parser(object):
 
     def factor(self):
         """
-        factor : PLUS factor
-               | MINUS factor
-               | INTEGER
-               | FLOAT
-               | LPAREN expr RPAREN
-               | ID
+        factor : PLUS factor | MINUS factor | INTEGER | FLOAT | LPAREN expr RPAREN | ID
         """
         token = self.current_token
 
@@ -423,13 +416,13 @@ class Parser(object):
         else:
             # If there is an error in factor, recovery is not possible at this low level
             self.error([PLUS, MINUS, INTEGER, FLOAT, LPAREN, ID])
+            # Skip the bad token to potentially recover in the caller function
+            self.current_token = self.lexer.get_next_token()
             return Num(Token(INTEGER, 0)) # Return a dummy node to prevent compiler crash
 
     def parse(self):
         """Starts parsing and returns the AST."""
         node = self.program()
-        if self.current_token.type != EOF:
-            self.error() # Extra tokens before EOF
         return node
 
 
@@ -459,7 +452,7 @@ class Interpreter(object):
         
         # Ensure both values are numeric
         if not isinstance(left_val, (int, float)) or not isinstance(right_val, (int, float)):
-            raise Exception(f"Runtime Error: Cannot perform arithmetic on non-numeric types.")
+            raise Exception(f"Runtime Error: Cannot perform arithmetic on non-numeric types: {type(left_val).__name__} and {type(right_val).__name__}")
 
         if node.op.type == PLUS:
             return left_val + right_val
@@ -470,7 +463,8 @@ class Interpreter(object):
         elif node.op.type == DIV:
             # Avoid division by zero
             if right_val == 0:
-                 raise Exception("Runtime Error: Division by zero.")
+                raise Exception("Runtime Error: Division by zero.")
+            # Ensure float division is used if either operand is float
             return left_val / right_val
 
     def visit_Num(self, node):
@@ -501,12 +495,11 @@ class Interpreter(object):
     def visit_VarDecl(self, node):
         """Handles variable declaration."""
         var_name = node.var_node.value
-        # In AML, we set the value to 0 (default) when only declared
         if var_name in self.GLOBAL_SCOPE:
              print(f"Warning: Variable '{var_name}' already declared. Skipping re-declaration.")
         else:
             self.GLOBAL_SCOPE[var_name] = 0 # Initialize variable with 0
-            print(f"Declared VAR: {var_name}")
+            print(f"Declared VAR: {var_name} (Initialized to 0)")
 
 
     def visit_Assign(self, node):
@@ -536,49 +529,93 @@ class Interpreter(object):
         
     def interpret(self):
         """Starts compilation and execution."""
+        print("--- LEXING & PARSING STARTING ---")
         tree = self.parser.parse()
+        
         if tree is not None:
-            print("\n--- PROGRAM EXECUTION STARTING ---\n")
+            print("\n--- PROGRAM EXECUTION STARTING ---")
             self.visit(tree)
-            print("\n--- PROGRAM EXECUTION FINISHED ---\n")
+            print("--- PROGRAM EXECUTION FINISHED ---\n")
             # Print scope for debugging
             print("--- FINAL GLOBAL SCOPE ---")
             for var, val in self.GLOBAL_SCOPE.items():
-                print(f"  {var}: {val}")
+                # Format to show floats without excessive decimals
+                formatted_val = f"{val:.4f}" if isinstance(val, float) else val
+                print(f"  {var}: {formatted_val}")
 
 
-# --- 5. Main Execution ---
+# --- 5. Flask Web Application Setup ---
 
-def main(text):
-    """Sets up the lexer, parser, and interpreter."""
-    print("--- LEXING & PARSING STARTING ---")
+# Define the 'app' instance that Gunicorn expects to find.
+app = Flask(__name__) 
+
+def run_aml_interpreter(text):
+    """Executes the AML code and captures all stdout output."""
+    old_stdout = sys.stdout
+    redirected_output = sys.stdout = io.StringIO()
+    
+    output_lines = []
+    final_scope = {}
     
     try:
         lexer = Lexer(text)
         parser = Parser(lexer)
         interpreter = Interpreter(parser)
+        
+        # Run interpretation (This will print execution details/results/errors)
         interpreter.interpret()
-
+        final_scope = interpreter.GLOBAL_SCOPE
+        
     except Exception as e:
-        print(f"\nFATAL COMPILER ERROR: {e}")
-        print("Compilation aborted.")
+        # Capture fatal errors not handled by the parser's recovery logic
+        output_lines.append(f"\nFATAL COMPILER ERROR: {e}")
+        output_lines.append("Compilation aborted.")
+    
+    finally:
+        # Restore stdout
+        sys.stdout = old_stdout
+        
+    # Get captured output
+    captured_output = redirected_output.getvalue()
+    
+    return captured_output, final_scope
 
-# Input code with multiple deliberate errors for testing the recovery:
-# 1. VAR num2 - Missing SEMICOLON (Error 1)
-# 2. num2 := num1 + ; - Missing expression after '+' (Error 2, runtime from previous)
-# 3. x := 5 + * 6; - Double operator (Error 3)
-aml_code = """
-VAR num1; 
-VAR num2 
-num1 := 10;
-num2 := num1 + ;
-VAR result;
-PRINT num1;
-PRINT num2;
-VAR x;
-x := 5 + * 6;
-PRINT x;
-"""
+@app.route('/', methods=['GET'])
+def index():
+    """Simple entry page for health check and basic instructions."""
+    return """
+    <h1>AML Interpreter Service</h1>
+    <p>This is the base URL. To run AML code, send a POST request to <code>/run_code</code> 
+    with a JSON body containing the <code>code</code> field.</p>
+    
+    <h2>Example Request (cURL):</h2>
+    <pre>
+curl -X POST http://YOUR_RENDER_URL/run_code -H "Content-Type: application/json" -d '{
+    "code": "VAR a; a := 5 * (10 + 2); PRINT a;"
+}'
+    </pre>
+    """
 
-print(f"--- INPUT CODE ---\n{aml_code}\n")
-main(aml_code)
+@app.route('/run_code', methods=['POST'])
+def run_code():
+    """API endpoint to receive and execute AML code."""
+    data = request.get_json()
+    if not data or 'code' not in data:
+        return jsonify({'error': 'Missing "code" parameter in request body.'}), 400
+    
+    aml_code = data['code']
+    
+    captured_output, final_scope = run_aml_interpreter(aml_code)
+    
+    response_data = {
+        'input_code': aml_code,
+        'execution_output': captured_output.strip(),
+        'final_scope': final_scope,
+        'message': 'AML code execution complete. Check execution_output for compiler/runtime details and errors.'
+    }
+    
+    return jsonify(response_data)
+
+if __name__ == '__main__':
+    # This block is for local testing only
+    app.run(debug=True)
