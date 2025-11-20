@@ -1,340 +1,251 @@
 import json
 import os
-import subprocess
-import tempfile
-import keyword
-from flask import Flask, jsonify, render_template, request
+import requests
+import time
+import re # Added for Lexical Analysis
+from functools import wraps
+from flask import Flask, render_template, request, jsonify, make_response
+from subprocess import Popen, PIPE, TimeoutExpired
+from typing import Callable, Any
 
-# --- Flask Initialization ---
-# Added template_folder='templates' for Render deployment stability
-app = Flask(__name__, template_folder='templates')
+app = Flask(__name__)
+# Ensures JSON output is compact for network efficiency.
+app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False 
 
-# --- Lexer Helper Function (Phase 1) ---
-PYTHON_KEYWORDS = set(keyword.kwlist)
-PYTHON_BUILTINS = set(dir(__builtins__))
+# ----------------------------------------------------------------------
+# 1. API and Authentication Constants
+# ----------------------------------------------------------------------
+# Gemini API URL. The model name is set here.
+GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
+GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025"
+API_KEY = os.environ.get("GEMINI_API_KEY", "") # Retrieve API Key from environment variable
 
-def lexical_analysis(code):
-    """Performs Lexical Analysis (Phase 1)."""
-    import re
-    # Simplified token splitting: Identifiers, Strings (single/double quote), or any non-space character
-    # This pattern is simplified for demonstration purposes and covers basic Python structure.
-    tokens = re.findall(r'[a-zA-Z_][a-zA-Z0-9_]*|"[^"]*"|\S', code)
-    
-    token_list = []
-    
-    for token in tokens:
-        token_type = 'UNKNOWN'
-        
-        # Check for multi-line comments or single-line comments starting with #
-        if token.startswith('#'):
-             continue
-        
-        if token in PYTHON_KEYWORDS:
-            token_type = 'KEYWORD'
-        elif token in PYTHON_BUILTINS:
-            token_type = 'BUILTIN_FUNCTION'
-        elif (token.startswith('"') and token.endswith('"')) or \
-             (token.startswith("'") and token.endswith("'")):
-            token_type = 'STRING_LITERAL'
-        elif token.replace('.', '', 1).isdigit():
-            token_type = 'NUMERIC_LITERAL'
-        elif not token.isalnum() and len(token) == 1:
-            token_type = 'OPERATOR/SYMBOL'
-        elif token.isidentifier():
-            token_type = 'IDENTIFIER'
-            
-        if token.strip(): # Ensure token is not just whitespace
-            token_list.append({'token': token, 'type': token_type})
+# ----------------------------------------------------------------------
+# 2. Utility Function: Exponential Backoff
+# ----------------------------------------------------------------------
 
-    return token_list
-
-# --- Syntax Analysis (Phase 2) ---
-def syntax_analysis(token_list):
+def api_retry_logic(retries: int = 5, initial_delay: int = 1) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """
-    Performs symbolic Syntax Analysis (Phase 2).
-    Checks for simple assignment or print statements.
+    Decorator with Exponential Backoff for API calls. (API কলে বারবার চেষ্টার জন্য ডেকোরেটর)
     """
-    # Simplified Grammar Check: ID = LITERAL or print(ID/LITERAL)
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any):
+            delay = initial_delay
+            for i in range(retries):
+                try:
+                    return func(*args, **kwargs)
+                except requests.exceptions.RequestException as e:
+                    if i == retries - 1:
+                        # Last attempt, raise the error
+                        app.logger.error(f"API call failed after {retries} retries: {e}")
+                        raise
+                    
+                    # Wait with exponential backoff
+                    time.sleep(delay)
+                    delay *= 2
+            # Should be unreachable
+            return None 
+        return wrapper
+    return decorator
+
+
+# ----------------------------------------------------------------------
+# 3. Gemini API Function: Error Analysis
+# ----------------------------------------------------------------------
+
+@api_retry_logic()
+def fetch_gemini_suggestion(error_message: str, code: str) -> str:
+    """Generates an AI-powered error recovery suggestion using the Gemini API. (এআই দিয়ে ত্রুটি সমাধানের পরামর্শ তৈরি করে)"""
     
-    # 1. Assignment Check (ID = LITERAL/ID)
-    if len(token_list) == 3 and \
-       token_list[0]['type'] == 'IDENTIFIER' and \
-       token_list[1]['token'] == '=' and \
-       (token_list[2]['type'] == 'NUMERIC_LITERAL' or token_list[2]['type'] == 'STRING_LITERAL' or token_list[2]['type'] == 'IDENTIFIER'):
-        
-        # Symbolically create an AST/Parse Tree
-        ast = {
-            "type": "Assignment",
-            "target": token_list[0]['token'],
-            "value": token_list[2]['token']
-        }
-        return f"Syntax OK (Assignment Statement)\nParse Tree (Symbolic):\n  ASSIGN -> ID ({ast['target']}) = VALUE ({ast['value']})"
-
-    # 2. Print Check (print(ID/LITERAL))
-    if len(token_list) >= 4 and \
-       token_list[0]['token'] == 'print' and \
-       token_list[1]['token'] == '(' and \
-       token_list[-1]['token'] == ')':
-        
-        content = [t['token'] for t in token_list[2:-1]]
-        
-        return f"Syntax OK (Function Call: print)\nParse Tree (Symbolic):\n  CALL -> print ( {', '.join(content)} )"
-        
-    # 3. Arithmetic Assignment Check (ID = ID OP ID)
-    if len(token_list) == 5 and \
-       token_list[0]['type'] == 'IDENTIFIER' and \
-       token_list[1]['token'] == '=' and \
-       token_list[2]['type'] == 'IDENTIFIER' and \
-       token_list[3]['token'] in ['+', '-', '*', '/'] and \
-       token_list[4]['type'] == 'IDENTIFIER':
-        
-        return f"Syntax OK (Arithmetic Assignment)\nParse Tree (Symbolic):\n  ASSIGN -> ID ({token_list[0]['token']}) = BINOP ({token_list[3]['token']}) [ {token_list[2]['token']}, {token_list[4]['token']} ]"
-
-
-    return "Syntax OK (Complex or Untested Grammar)\nParse Tree (Symbolic): Structure too complex for simple simulation. Checking full Python execution path instead."
-
-# --- Semantic Analysis (Phase 3) ---
-def semantic_analysis(token_list):
-    """
-    Performs symbolic Semantic Analysis (Phase 3).
-    Checks for type compatibility in a very basic assignment.
-    """
-    symbol_table = {}
-    output = []
+    # AI System Prompt - Crucially asks for the output in Bengali. (সিস্টেম প্রম্পট - আউটপুট বাংলায় দিতে হবে)
+    system_prompt = (
+        "Act as an expert Python programming tutor and compiler error recovery system. "
+        "Analyze the user's code and the traceback/error provided. "
+        "Your response must be a single, concise paragraph. "
+        "The suggestion should be specifically tailored to fix the error and suggest the best solution for the user, focusing on the line number if available. "
+        "MOST IMPORTANT: The entire response MUST BE in BENGALI (Bangla Latin script). "
+        "DO NOT include markdown formatting, bolding, or headings in your output."
+    )
     
-    # Simulate Symbol Table update and Type Checking
-    for i, token in enumerate(token_list):
-        if token['type'] == 'IDENTIFIER' and i + 1 < len(token_list) and token_list[i+1]['token'] == '=':
-            # Found an assignment: ID = VALUE
-            if i + 2 < len(token_list):
-                value_token = token_list[i+2]
-                
-                # Simple Type Inference
-                inferred_type = 'INT/FLOAT' if value_token['type'] == 'NUMERIC_LITERAL' else 'STRING'
-                
-                # Update Symbol Table
-                symbol_table[token['token']] = inferred_type
-                output.append(f"  Symbol Table: '{token['token']}' added with Type: {inferred_type}")
-
-    if not symbol_table:
-        return "Semantic OK. No variable assignments found for type checking.\n"
+    # User Query - containing the error message and the code (ব্যবহারকারীর প্রশ্ন - যেখানে ত্রুটির বার্তা এবং কোড রয়েছে)
+    user_query = (
+        "The user attempted to run the following Python code:\n\n"
+        f"--- CODE ---\n{code}\n\n"
+        "And received this error/output:\n\n"
+        f"--- ERROR ---\n{error_message}\n\n"
+        "Provide a specific error recovery suggestion and solution."
+    )
     
-    output.append("\nSemantic Check Result: OK. Basic Type Consistency Assumed.")
-    return "Symbol Table & Type Check (Symbolic):\n" + "\n".join(output)
+    # Prepare API Payload
+    payload = {
+        "contents": [{"parts": [{"text": user_query}]}],
+        "systemInstruction": {"parts": [{"text": system_prompt}]}
+    }
 
-# --- Intermediate Code Generation (Phase 4) ---
-def intermediate_code_generation(token_list):
-    """
-    Performs symbolic Intermediate Code Generation (Phase 4) using Three-Address Code (TAC).
-    """
-    tac_instructions = []
-    temp_counter = 1
+    # Call the API
+    response = requests.post(
+        f"{GEMINI_API_BASE_URL}{GEMINI_MODEL}:generateContent?key={API_KEY}",
+        headers={"Content-Type": "application/json"},
+        json=payload,
+        timeout=30 # 30 seconds timeout
+    )
     
-    # Look for simple arithmetic assignments (ID = ID OP ID)
-    for i in range(len(token_list) - 4):
-        # Pattern: ID = ID OP ID
-        if token_list[i]['type'] == 'IDENTIFIER' and \
-           token_list[i+1]['token'] == '=' and \
-           (token_list[i+2]['type'] == 'IDENTIFIER' or token_list[i+2]['type'] == 'NUMERIC_LITERAL') and \
-           token_list[i+3]['token'] in ['+', '-', '*', '/'] and \
-           (token_list[i+4]['type'] == 'IDENTIFIER' or token_list[i+4]['type'] == 'NUMERIC_LITERAL'):
-            
-            op = token_list[i+3]['token']
-            arg1 = token_list[i+2]['token']
-            arg2 = token_list[i+4]['token']
-            target = token_list[i]['token']
-            
-            # Simple TAC generation: t1 = arg1 OP arg2; target = t1
-            temp_var = f"t{temp_counter}"
-            tac_instructions.append(f"{temp_var} = {arg1} {op} {arg2}")
-            tac_instructions.append(f"{target} = {temp_var}")
-            temp_counter += 1
-            
-            return "Intermediate Code Generation (Symbolic TAC):\n" + "\n".join(tac_instructions)
+    response.raise_for_status() # Raise an exception for bad HTTP status codes
 
-    # Simple assignment handling (ID = LITERAL/ID)
-    if len(token_list) == 3 and token_list[1]['token'] == '=':
-        tac_instructions.append(f"{token_list[0]['token']} = {token_list[2]['token']}")
-        return "Intermediate Code Generation (Symbolic TAC):\n" + "\n".join(tac_instructions)
-        
-    return "Intermediate Code Generation (Symbolic TAC):\nTAC Generation skipped. No simple assignment or arithmetic found."
-
-
-# --- Helper Functions for Error Handling (Cleaned) ---
-
-def clean_error_message(error_str):
-    # Added explicit handling for the timeout message for clarity
-    if "Execution timed out" in error_str:
-        return "Timeout Error: Code execution exceeded the 5 second limit (likely an infinite loop)."
-
-    lines = error_str.strip().split('\n')
-    
-    if not lines:
-        return "Unknown Error (No traceback found)."
-    
-    # Try to find the last relevant error line (ignoring boilerplate traceback)
-    main_error_line = next((line for line in reversed(lines) if ':' in line), lines[-1]).strip()
-    
+    # Extract text from the response
+    result = response.json()
     try:
-        error_type, error_msg = main_error_line.split(':', 1)
-        error_type = error_type.strip()
-        error_msg = error_msg.strip()
-    except ValueError:
-        # Fallback for errors without a clear ': ' separator
-        error_type = main_error_line.split(':', 1)[0].strip() if ':' in main_error_line else "Runtime Error"
-        error_msg = main_error_line
-        
-    suggestion = ""
-    
-    if "NameError" in error_type:
-        suggestion = "Suggestion: A variable or function was used but not defined. Check for spelling errors or missing initialization."
-
-    elif "SyntaxError" in error_type:
-        suggestion = "Suggestion: Check for issues with colons (:), indentation, parentheses, or quotation marks. The structure of your code is invalid."
-
-    elif "EOFError" in error_type:
-        suggestion = "Suggestion: The 'input()' function was called but no content was provided in the 'User Input' box."
-        
-    elif "TypeError" in error_type:
-        suggestion = "Suggestion: Check data types. An operation is likely running on incompatible types (e.g., trying to add a string and a number)."
-
-    clean_message = f"Error Type: {error_type}\nMessage: {error_msg}"
-    if suggestion:
-        clean_message += f"\n\nIntelligent Suggestion:\n{suggestion}"
-        
-    return clean_message
+        suggestion = result['candidates'][0]['content']['parts'][0]['text']
+        return suggestion
+    except (KeyError, IndexError):
+        return "🤖 AI: সমাধান খুঁজে পেতে ব্যর্থ। ডেটার ফরম্যাট অপ্রত্যাশিত ছিল।"
 
 
-# --- Flask Routes ---
+# ----------------------------------------------------------------------
+# 4. Flask Routes
+# ----------------------------------------------------------------------
 
 @app.route('/')
 def index():
-    # টেমপ্লেট সফলভাবে লোড হবে
+    """Renders the root page. (মূল পৃষ্ঠা রেন্ডার করে)"""
     return render_template('index.html')
 
-# --- Lexical Analysis Route (Phase 1) ---
-@app.route('/lex', methods=['POST'])
-def get_tokens():
-    data = request.get_json()
-    code = data.get('code', '')
-    
-    try:
-        tokens = lexical_analysis(code)
-        
-        formatted_output = "--- Phase 1: Lexical Analysis (Tokens) ---\n"
-        for item in tokens:
-            formatted_output += f"TOKEN: '{item['token']}' \t TYPE: {item['type']}\n"
-        
-        return jsonify({'output': formatted_output, 'error': ''})
-    except Exception as e:
-        return jsonify({'output': '', 'error': f"Lexer Error: {str(e)}"})
-
-# --- Syntax Analysis Route (Phase 2) ---
-@app.route('/syntax', methods=['POST'])
-def get_syntax():
-    data = request.get_json()
-    code = data.get('code', '')
-    
-    try:
-        # Pipelining: Lexer -> Syntax
-        tokens = lexical_analysis(code)
-        output = syntax_analysis(tokens)
-        
-        formatted_output = "--- Phase 2: Syntax Analysis (Parse Tree/AST) ---\n"
-        formatted_output += output
-        
-        return jsonify({'output': formatted_output, 'error': ''})
-    except Exception as e:
-        return jsonify({'output': '', 'error': f"Syntax Analyzer Error: {str(e)}"})
-
-# --- Semantic Analysis Route (Phase 3) ---
-@app.route('/semantic', methods=['POST'])
-def get_semantic():
-    data = request.get_json()
-    code = data.get('code', '')
-    
-    try:
-        # Pipelining: Lexer -> Semantic (directly uses tokens for simplicity)
-        tokens = lexical_analysis(code)
-        output = semantic_analysis(tokens)
-        
-        formatted_output = "--- Phase 3: Semantic Analysis (Symbol Table/Type Check) ---\n"
-        formatted_output += output
-        
-        return jsonify({'output': formatted_output, 'error': ''})
-    except Exception as e:
-        return jsonify({'output': '', 'error': f"Semantic Analyzer Error: {str(e)}"})
-
-# --- Intermediate Code Generation Route (Phase 4) ---
-@app.route('/icg', methods=['POST'])
-def get_icg():
-    data = request.get_json()
-    code = data.get('code', '')
-    
-    try:
-        # Pipelining: Lexer -> ICG (directly uses tokens for simplicity)
-        tokens = lexical_analysis(code)
-        output = intermediate_code_generation(tokens)
-        
-        formatted_output = "--- Phase 4: Intermediate Code Generation (TAC) ---\n"
-        formatted_output += output
-        
-        return jsonify({'output': formatted_output, 'error': ''})
-    except Exception as e:
-        return jsonify({'output': '', 'error': f"ICG Error: {str(e)}"})
-
-
-# Existing Code Execution Route (Phase 7: Execution)
-@app.route('/run', methods=['POST'])
+@app.route('/run_code', methods=['POST'])
 def run_code():
-    output = ""
-    error = ""
-    
-    data = request.get_json()
+    """Executes the Python code. (পাইথন কোড কার্যকর করে)"""
+    data = request.json
     code = data.get('code', '')
-    user_input = data.get('input', '')
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        code_file = os.path.join(tmpdir, 'code.py')
-        input_file = os.path.join(tmpdir, 'input.txt')
-
-        with open(code_file, 'w', encoding='utf-8') as f:
+    input_data = data.get('input', '')
+    
+    # Write the code to a temporary file
+    filename = 'temp_code.py'
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
             f.write(code)
+    except IOError:
+        return jsonify(output="Error: অস্থায়ী ফাইলে কোড লিখতে পারিনি।", status="error")
 
-        with open(input_file, 'w', encoding='utf-8') as f:
-            f.write(user_input)
-
-        cmd = ['python', code_file]
+    # Use subprocess to run the code
+    try:
+        # Popen: Start non-blocking process
+        process = Popen(['python3', filename], stdin=PIPE, stdout=PIPE, stderr=PIPE, text=True, encoding='utf-8')
         
-        with open(input_file, 'r', encoding='utf-8') as input_fd:
-            try:
-                process = subprocess.run(
-                    cmd,
-                    stdin=input_fd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=5,
-                    text=True,
-                    check=False
-                )
-                
-                output = process.stdout.strip()
-                raw_error = process.stderr.strip()
-                
-                if raw_error:
-                    error = clean_error_message(raw_error)
-                    output = output if output else "" # Ensure output is set
+        # communicate(): Send input and gather output, with 5 second timeout
+        stdout, stderr = process.communicate(input=input_data, timeout=5)
+        
+        if stderr:
+            # If error, return stderr content
+            output = stderr
+            status = 'error'
+        else:
+            # On success, return stdout content
+            output = stdout
+            status = 'success'
 
-            except subprocess.TimeoutExpired:
-                # Timeout happened. Generate the custom, clean error message here.
-                error = clean_error_message("Error: Execution timed out (Exceeded 5 seconds).")
-                output = ""
+    except TimeoutExpired:
+        process.kill()
+        output = "Execution Timeout Error: কোড ৫ সেকেন্ডের মধ্যে শেষ হয়নি।"
+        status = 'error'
+    except Exception as e:
+        output = f"Runtime Error: {str(e)}"
+        status = 'error'
+    finally:
+        # Remove the temporary file
+        os.remove(filename)
 
-            except Exception as e:
-                error = f"An unexpected server error occurred: {str(e)}"
-                output = ""
+    # Return the response
+    return jsonify(output=output, status=status)
 
-    return jsonify({'output': output, 'error': error})
+
+@app.route('/analyze_code', methods=['POST'])
+def analyze_code():
+    """Performs compiler phase analysis (e.g., Lexical Analysis). (কম্পাইলার ফেজ বিশ্লেষণ করে)"""
+    data = request.json
+    code = data.get('code', '')
+    phase = data.get('phase', '')
+
+    if phase == 'lex':
+        # --- PHASE 1: LEXICAL ANALYSIS (Tokenization) ---
+        tokens = []
+        token_specification = [
+            # Regular expressions to match common Python elements
+            ('STRING',  r'"[^"]*"'),
+            ('NUMBER',  r'\b\d+(\.\d+)?\b'),
+            # Common Python Keywords
+            ('KEYWORD', r'\b(def|return|if|else|while|for|in|print|class|import|from)\b'),
+            ('IDENTIFIER', r'[a-zA-Z_][a-zA-Z0-9_]*'),
+            # Operators
+            ('OPERATOR', r'[+\-*/%=<>!]+'),
+            # Delimiters (Parentheses, Brackets, etc.)
+            ('DELIMITER', r'[\(\)\[\]\{\}:,]'),
+            ('WHITESPACE', r'[ \t]+'),
+            ('NEWLINE', r'\n'),
+            ('COMMENT', r'#.*'),
+            ('MISMATCH', r'.') # Catch-all for unrecognized characters
+        ]
+        
+        # Combine regex patterns for iteration
+        tok_regex = '|'.join('(?P<%s>%s)' % pair for pair in token_specification)
+        
+        lineno = 1
+        
+        for mo in re.finditer(tok_regex, code):
+            kind = mo.lastgroup
+            value = mo.group(kind)
+            
+            if kind == 'NEWLINE':
+                lineno += 1
+                continue
+            elif kind == 'WHITESPACE' or kind == 'COMMENT':
+                continue
+            elif kind == 'MISMATCH':
+                tokens.append(f'!!! LEXICAL ERROR at line {lineno}: Unrecognized character {repr(value)}')
+                break
+            else:
+                # Add token type and value, prefixed with line number
+                tokens.append(f"L{lineno}: <{kind}>: {value}")
+
+        output = "\n".join(tokens)
+        if not output and code.strip():
+             output = "কোড বিশ্লেষণ করা হয়েছে, কিন্তু অর্থপূর্ণ টোকেন পাওয়া যায়নি (সম্ভবত শুধুমাত্র মন্তব্য বা ফাঁকা স্থান ছিল)।"
+             
+        return jsonify(output=f"--- LEXICAL ANALYSIS (Token Stream) ---\n\n{output}", status="success")
+    
+    # --- PLACEHOLDERS for other phases (YACC equivalent) ---
+    elif phase == 'syntax':
+        return jsonify(output="--- SYNTAX ANALYSIS (Phase 2: YACC Equivalent) ---\n\nএই ধাপে অ্যাবস্ট্রাক্ট সিনট্যাক্স ট্রি (AST) তৈরি করে ব্যাকরণ পরীক্ষা করা হয়। (এই ডেমোতে এখনও প্রয়োগ করা হয়নি)", status="info")
+    elif phase == 'semantic':
+        return jsonify(output="--- SEMANTIC ANALYSIS (Phase 3) ---\n\nএই ধাপে টাইপের সামঞ্জস্য এবং ভেরিয়েবল ঘোষণা পরীক্ষা করা হয়। (এই ডেমোতে এখনও প্রয়োগ করা হয়নি)", status="info")
+    elif phase == 'icg':
+        return jsonify(output="--- INTERMEDIATE CODE GENERATION (Phase 4) ---\n\nএই ধাপে থ্রি-অ্যাড্রেস কোড বা অনুরূপ ইন্টারমিডিয়েট উপস্থাপনা তৈরি করা হয়। (এই ডেমোতে এখনও প্রয়োগ করা হয়নি)", status="info")
+        
+    return jsonify(output="অকার্যকর কম্পাইলার ফেজ অনুরোধ করা হয়েছে।", status="error")
+
+
+@app.route('/get_suggestion', methods=['POST'])
+def get_suggestion():
+    """Generates a solution from the error message using Gemini. (ত্রুটি বার্তা থেকে জেমিনি ব্যবহার করে সমাধান তৈরি করে)"""
+    data = request.json
+    error_message = data.get('error_message', '')
+    code = data.get('code', '')
+
+    if not error_message or not code:
+        return jsonify(suggestion="Error: ত্রুটি বার্তা বা কোড সরবরাহ করা হয়নি।"), 400
+
+    try:
+        # Call Gemini API
+        suggestion = fetch_gemini_suggestion(error_message, code)
+        return jsonify(suggestion=suggestion, status="success")
+    except requests.exceptions.HTTPError as e:
+        # Handle HTTP errors from API
+        app.logger.error(f"Gemini API HTTP Error: {e.response.text}")
+        return jsonify(suggestion=f"🤖 এআই এপিআই ত্রুটি (HTTP {e.response.status_code}): সম্ভবত এপিআই কী ভুল বা ব্যবহারের সীমা অতিক্রম করেছে।", status="error"), 500
+    except Exception as e:
+        # Handle other unexpected errors
+        app.logger.error(f"Unexpected Error in get_suggestion: {e}")
+        return jsonify(suggestion=f"🤖 এআই এপিআই ত্রুটি: সমাধান তৈরি করার সময় একটি অপ্রত্যাশিত ত্রুটি ঘটেছে।", status="error"), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Run the Flask app
+    app.run(debug=True, host='0.0.0.0', port=5000)
