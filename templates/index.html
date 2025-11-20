@@ -3,417 +3,520 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Online Python Code Executor & AI Debugger</title>
-    <!-- Tailwind CSS CDN -->
+    <title id="doc-title">Integrated Code Executor & Debugger</title>
+    <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Custom Styles -->
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Noto+Sans+Bengali:wght@100..900&display=swap');
-        
-        :root {
-            --primary-color: #4c51bf; 
-            --primary-light: #6b46c1; 
-            --secondary-color: #f7fafc; 
-            --text-color: #2d3748; 
-            --editor-bg: #1e1e1e; 
-            --editor-text: #d4d4d4; 
-        }
-
+        /* Custom font import for better readability */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
         body {
-            font-family: 'Inter', 'Noto Sans Bengali', sans-serif;
-            background-color: var(--secondary-color);
-            color: var(--text-color);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* Deep navy background */
+            color: #e2e8f0; /* Light text color */
+        }
+        .panel {
+            background-color: #1e293b; 
+            border: 1px solid #334155;
         }
 
-        /* Editor Custom Scrollbar */
-        .code-editor, .code-output, .suggestion-box {
-            overflow: auto;
-            scrollbar-width: thin;
-            scrollbar-color: var(--primary-color) #333;
+        /* Custom styles for the code editor with line numbers */
+        #editor-wrapper {
+            min-height: 400px;
+            background-color: #1e293b; /* Darker editor background */
+            border: 1px solid #334155;
+            border-radius: 0.5rem; /* rounded-lg */
+            overflow: hidden; /* Ensure everything stays within the wrapper */
         }
 
-        .code-editor::-webkit-scrollbar, .code-output::-webkit-scrollbar, .suggestion-box::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+        #line-numbers {
+            background-color: #334155; /* Blue-gray for numbers background */
+            color: #94a3b8; /* Light gray for numbers */
+            text-align: right;
+            padding: 1rem 0.5rem;
+            font-size: 0.875rem; /* text-sm */
+            line-height: 1.5rem; /* Match textarea line-height */
+            flex-shrink: 0;
+            white-space: pre; /* Ensure newlines are respected */
         }
 
-        .code-editor::-webkit-scrollbar-thumb, .code-output::-webkit-scrollbar-thumb, .suggestion-box::-webkit-scrollbar-thumb {
-            background-color: var(--primary-light);
-            border-radius: 4px;
+        #python-code-editor {
+            flex-grow: 1;
+            padding: 1rem;
+            font-size: 0.875rem; /* text-sm */
+            line-height: 1.5rem;
+            background-color: transparent; /* Makes the wrapper's color visible */
+            border: none;
+            outline: none;
+            resize: none;
+            color: #e2e8f0;
+            white-space: pre-wrap; /* Wrap text when needed */
+        }
+        /* Highlight for the error phase */
+        .phase-error-highlight {
+            background-color: #ef4444 !important; /* Red 500 */
+            color: #ffffff !important;
+            animation: pulse-red 1s infinite;
         }
 
-        .code-editor::-webkit-scrollbar-track, .code-output::-webkit-scrollbar-track, .suggestion-box::-webkit-scrollbar-track {
-            background: #2d2d2d;
-        }
-        
-        /* Monospace font for code areas */
-        .code-editor, .code-output {
-            font-family: 'Consolas', 'Monaco', 'Andale Mono', 'Ubuntu Mono', monospace;
-            white-space: pre; 
-        }
-
-        /* Responsive Layout Adjustments */
-        @media (max-width: 1024px) {
-            .main-grid {
-                grid-template-columns: 1fr;
-                gap: 1rem;
-            }
-            .panel {
-                min-height: 300px;
-            }
+        @keyframes pulse-red {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
         }
     </style>
 </head>
-<body class="p-4 lg:p-8">
-    <header class="mb-6">
-        <h1 class="text-4xl font-extrabold text-gray-900 mb-2" id="header-main-title">Online Python Code Executor & AI Debugger</h1>
-        <p class="text-gray-600 text-lg" id="header-subtitle">Run your Python code and get instant AI assistance for debugging and error resolution.</p>
-    </header>
+<body class="p-4 md:p-8">
 
-    <!-- Language Toggle: Default set to English -->
-    <div class="mb-4 flex justify-end">
-        <label for="language-toggle" class="text-sm font-medium mr-2 self-center" id="lang-label">Language:</label>
-        <select id="language-toggle" class="p-2 border border-gray-300 rounded-lg shadow-sm focus:ring-primary-color focus:border-primary-color transition duration-150 ease-in-out">
-            <option value="bn">বাংলা (Bengali)</option>
-            <option value="en" selected>English</option>
-        </select>
-    </div>
+    <div class="max-w-6xl mx-auto space-y-8">
+        
+        <!-- Header Section -->
+        <header class="text-center pb-4 border-b border-indigo-700">
+            <h1 id="main-header" class="text-4xl font-extrabold text-white">Python Code Executor & Debugger</h1>
+            <p id="sub-header" class="text-indigo-400 mt-2 text-lg">Run, Analyze, and Debug Python Code Instantly</p>
+        </header>
 
-    <main class="main-grid grid lg:grid-cols-2 gap-6 flex-grow">
-        <!-- LEFT PANEL: Code Editor & Input -->
-        <section class="panel bg-white p-6 rounded-xl shadow-2xl transition duration-300 hover:shadow-3xl border border-gray-200">
-            <h2 class="text-xl font-semibold mb-3 text-primary-color" id="code-section-title">Code Editor (Python)</h2>
-            <textarea id="code-editor" class="code-editor w-full p-4 mb-4 text-sm rounded-lg bg-gray-900 text-editor-text border border-gray-700 focus:ring-primary-light focus:border-primary-light h-96 resize-none" placeholder="Write your Python code here...&#10;Example:&#10;def greet(name):&#10;    print(&quot;Hello, &quot; + name)&#10;greet(&quot;World&quot;)">
-# A function that adds two numbers
-def add_numbers(a, b):
+        <!-- Language Selector for Interface -->
+        <div class="flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <!-- Empty for now, placed here for alignment if we add something else left -->
+            </div>
+            <div class="flex items-center space-x-2">
+                <label for="interface-language-select" class="text-gray-400 text-sm font-medium" id="lang-label">Interface Language:</label>
+                <select id="interface-language-select" onchange="switchLanguage(this.value)" class="bg-gray-700 text-white rounded-lg p-2 text-sm border border-gray-600 focus:ring-indigo-500">
+                    <option value="English" selected>English</option>
+                    <option value="Bengali">বাংলা (Bengali)</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Main Workspace: Two Columns for Code and Output/Input/AI -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            
+            <!-- LEFT COLUMN: Code Editor Only (Order 1) -->
+            <div class="space-y-6 lg:order-1">
+                
+                <!-- Python Code Editor (with Line Numbering) -->
+                <section class="panel p-6 rounded-xl shadow-2xl">
+                    <h2 id="editor-header" class="text-2xl font-semibold text-white mb-4">Code Editor</h2>
+                    
+                    <!-- Code Area Wrapper -->
+                    <div id="editor-wrapper" class="w-full flex" style="min-height: 400px;">
+                        <!-- Line Numbers -->
+                        <div id="line-numbers" style="width: 3rem;">1\n2\n3\n4\n5\n6\n7\n8</div> 
+
+                        <!-- Actual Code Input -->
+                        <textarea id="python-code-editor" class="flex-grow resize-none" 
+                            placeholder="Write your Python code here..."
+                            oninput="updateLineNumbers()"
+                            onscroll="syncScroll()"
+                            onpaste="updateLineNumbers()"
+                            oncut="updateLineNumbers()"
+                            onchange="updateLineNumbers()"
+                        ># Example: Calculate the sum of two numbers
+def add(a, b):
     return a + b
 
-result = add_numbers(5, 7)
-print(f"The sum is: {result}")
-</textarea>
-
-            <h2 class="text-lg font-medium mb-2 text-gray-700" id="input-section-title">Input (Optional)</h2>
-            <textarea id="code-input" class="w-full p-2 text-sm rounded-lg border border-gray-300 focus:ring-primary-light focus:border-primary-light h-20 resize-none" placeholder="Write input required for the program..."></textarea>
+result = add(5, 3)
+print(f"Result: {result}")
+                        </textarea>
+                    </div>
+                    
+                    <!-- Run Button and Compiler Phases (Tooltips confirmed) -->
+                    <div class="flex flex-col sm:flex-row gap-3 mt-4 items-center justify-between">
+                        <button onclick="runCode()" class="px-8 py-3 bg-indigo-600 text-white text-lg font-bold rounded-xl hover:bg-indigo-700 transition duration-300 shadow-lg transform hover:scale-[1.02]">
+                            <span id="run-text">Run Code</span>
+                            <span id="loading-spinner" class="hidden animate-spin h-5 w-5 border-4 border-white border-t-transparent rounded-full ml-2"></span>
+                        </button>
+                        <!-- Compiler Phases - Now arranged in two rows: Lexical, Syntax, Semantic on top; ICG (full form) below -->
+                        <div class="flex flex-col gap-2 text-sm" id="code-editor-phases">
+                            <!-- Top Row: Lexical, Syntax, Semantic -->
+                            <div class="flex flex-wrap justify-end gap-2">
+                                <span class="phase-span px-3 py-1 bg-gray-700 text-gray-300 rounded-full font-medium" title="Tokenization or Scanning">Lexical</span>
+                                <span class="phase-span px-3 py-1 bg-gray-700 text-gray-300 rounded-full font-medium" title="Parsing">Syntax</span>
+                                <span class="phase-span px-3 py-1 bg-gray-700 text-gray-300 rounded-full font-medium" title="Type Checking and Meaning Verification">Semantic</span>
+                            </div>
+                            <!-- Bottom Row: ICG (Full Form) -->
+                            <div class="flex justify-end">
+                                <span class="phase-span px-3 py-1 bg-gray-700 text-gray-300 rounded-full font-medium whitespace-nowrap" title="Intermediate Code Generation">Intermediate Code Generation</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+            </div>
             
-            <div class="flex flex-wrap gap-3 mt-4">
-                <button id="run-button" class="action-button bg-primary-color hover:bg-primary-light text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 ease-in-out transform hover:scale-105" onclick="runCode()">
-                    <i class="fas fa-play"></i> <span id="run-text">Run Code</span>
-                </button>
+            <!-- RIGHT COLUMN: Input, Output, and AI Debugging (Order 2) -->
+            <div class="space-y-6 lg:order-2">
+                
+                <!-- 1. User Input Section (Top of Right Column) -->
+                <section class="panel p-6 rounded-xl shadow-2xl">
+                    <h2 id="input-header" class="text-2xl font-semibold text-white mb-4">User Input</h2>
+                    <textarea id="user-input" class="w-full h-32 p-4 rounded-lg bg-gray-900 text-white resize-none border border-gray-700" 
+                        placeholder="Provide input required for code execution..."
+                    ></textarea>
+                </section>
+                
+                <!-- 2. Output / Errors / Analysis Result (Middle of Right Column) -->
+                <section class="panel p-6 rounded-xl shadow-2xl">
+                    <h2 id="output-header" class="text-2xl font-semibold text-white mb-4">Output / Result</h2>
+                    <pre id="output-display" class="w-full min-h-40 p-4 rounded-lg bg-gray-900 text-green-400 overflow-auto border border-gray-700 text-sm">
+-- Output will appear here --
+                    </pre>
+                </section>
+
+                <!-- 3. AI Error Suggestion & Recovery (Bottom of Right Column) -->
+                <section class="panel p-6 rounded-xl shadow-2xl">
+                    <h2 id="ai-header" class="text-2xl font-semibold text-white mb-4">AI Debugging</h2>
+                    
+                    <!-- AI CONTROLS BLOCK -->
+                    <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 mb-4 space-y-3">
+                        
+                        <!-- AI Toggle Row -->
+                        <div class="flex items-center justify-between">
+                            <label for="ai-suggestion-toggle" class="text-gray-200 font-medium select-none text-base" id="enable-ai-label">Enable AI:</label>
+                            <input type="checkbox" id="ai-suggestion-toggle" class="h-6 w-6 rounded border-gray-600 bg-gray-700 text-indigo-500 focus:ring-indigo-400 cursor-pointer">
+                        </div>
+
+                        <!-- Language Selector Row -->
+                        <div class="flex items-center justify-between">
+                            <label for="ai-language-select" class="text-gray-200 font-medium select-none text-base" id="ai-lang-label">AI Output Language:</label>
+                            <select id="ai-language-select" class="bg-gray-700 text-white rounded-lg p-2 text-sm border border-gray-600 focus:ring-indigo-500">
+                                <option value="English" selected>English</option>
+                                <option value="Bengali">বাংলা (Bengali)</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <pre id="ai-suggestion-display" class="w-full min-h-32 p-4 rounded-lg bg-gray-900 text-gray-400 overflow-auto border border-gray-700 text-sm">
+AI suggestion will appear here if an error occurs during execution.
+                    </pre>
+                </section>
+
             </div>
-        </section>
-
-        <!-- RIGHT PANEL: Output & AI Suggestion -->
-        <section class="panel bg-white p-6 rounded-xl shadow-2xl transition duration-300 hover:shadow-3xl border border-gray-200 flex flex-col">
-            <h2 class="text-xl font-semibold mb-3 text-primary-color" id="output-title">Output/Code Result</h2>
-            <pre id="code-output" class="code-output flex-grow w-full p-4 mb-4 text-sm rounded-lg bg-gray-900 text-editor-text border border-gray-700 h-96 overflow-auto">Waiting for code run...</pre>
-
-            <h2 class="text-xl font-semibold mb-3 mt-4 text-primary-color" id="ai-title">AI Debugger (Error Solution)</h2>
-            <div id="suggestion-box" class="suggestion-box w-full p-4 text-sm rounded-lg border-2 border-dashed border-gray-400 min-h-20 flex flex-col justify-center items-center text-center bg-gray-50 transition duration-300">
-                <span id="ai-suggestion-text" class="text-gray-600 italic">AI suggestion will appear here after a code run with errors.</span>
-            </div>
-            <button id="suggestion-button" class="action-button bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 ease-in-out transform hover:scale-105 mt-4 w-full" onclick="getSuggestion()" disabled>
-                <i class="fas fa-magic"></i> <span id="get-suggestion-text">Get AI Suggestion</span>
-            </button>
-        </section>
-    </main>
-
-    <!-- Font Awesome for Icons -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/js/all.min.js"></script>
-
-    <script>
-        // Global state for current language (default: English 'en')
-        let currentLanguage = 'en'; 
+            
+        </div>
         
-        // UI Text Dictionary for easy language switching (COMPILER ANALYZER REFERENCES REMOVED)
-        const uiTexts = {
-            'en': {
-                'header-main-title': 'Online Python Code Executor & AI Debugger',
-                'header-subtitle': 'Run your Python code and get instant AI assistance for debugging and error resolution.',
-                'lang-label': 'Language:',
-                'code-section-title': 'Code Editor (Python)',
-                'input-section-title': 'Input (Optional)',
-                'run-text': 'Run Code',
-                'output-title': 'Output/Code Result',
-                'ai-title': 'AI Debugger (Error Solution)',
-                'ai-suggestion-text': 'AI suggestion will appear here after a code run with errors.',
-                'get-suggestion-text': 'Get AI Suggestion',
-                'placeholder-editor': 'Write your Python code here...\nExample:\n\ndef greet(name):\n    print("Hello, " + name)\ngreet("World")',
-                'placeholder-input': 'Write input required for the program...',
-                'waiting-run': 'Waiting for code run...',
-                'running': 'Running Code...',
-                'getting-suggestion': 'Getting AI suggestion...',
-                'error-api': '🤖 AI API Error: Could not get suggestion.',
-                'error-run': 'Error during code execution: ',
-                'error-prompt': '...Error detected. Ask AI for a solution.',
+    </div>
+
+    <!-- JavaScript Logic for Language Switch, Line Numbering, UI Simulation, and API call -->
+    <script>
+        // API Configuration (Empty key will be automatically provided by the Canvas environment)
+        const apiKey = ""; 
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        // --- TRANSLATION DATA ---
+        const translations = {
+            'English': {
+                'doc-title': 'Integrated Code Executor & Debugger',
+                'main-header': 'Python Code Executor & Debugger',
+                'sub-header': 'Run, Analyze, and Debug Python Code Instantly',
+                'lang-label': 'Interface Language:',
+                'ai-lang-label': 'AI Output Language:', 
+                'editor-header': 'Code Editor',
+                'code-placeholder': 'Write your Python code here...',
+                'run-text-base': 'Run Code',
+                'input-header': 'User Input',
+                'input-placeholder': 'Provide input required for code execution...',
+                'output-header': 'Output / Result',
+                'output-placeholder': '-- Output will appear here --',
+                'ai-header': 'AI Debugging',
+                'enable-ai-label': 'Enable AI:',
+                'ai-reset-text': 'AI suggestion will appear here if an error occurs during execution.',
+                'running-text': 'Running...',
+                'output-loading': 'Running code... Please wait...',
+                'ai-loading': 'Generating AI suggestion... please wait...',
+                'ai-error-connect': 'Failed to connect to AI service.',
+                'ai-error-retrieve': 'Error: Could not retrieve AI suggestion. Please check the console.',
             },
-            'bn': {
-                'header-main-title': 'অনলাইন পাইথন কোড এক্সিকিউটর ও এআই ডিবাগার',
-                'header-subtitle': 'আপনার পাইথন কোড রান করুন এবং ডিবাগিং ও ত্রুটি সমাধানে তাত্ক্ষণিক এআই সহায়তা নিন।',
-                'lang-label': 'ভাষা:',
-                'code-section-title': 'কোড এডিটর (Python)',
-                'input-section-title': 'ইনপুট (ঐচ্ছিক)',
-                'run-text': 'কোড রান করুন',
-                'output-title': 'আউটপুট/কোড রেজাল্ট',
-                'ai-title': 'এআই ডিবাগার (ত্রুটি সমাধান)',
-                'ai-suggestion-text': 'এখানে কোড রান করার পর ত্রুটি বার্তা এলে এআই সমাধান দেবে।',
-                'get-suggestion-text': 'এআই থেকে সমাধান নিন',
-                'placeholder-editor': 'এখানে আপনার পাইথন কোড লিখুন...\nযেমন:\n\ndef greet(name):\n    print("Hello, " + name)\ngreet("World")',
-                'placeholder-input': 'প্রোগ্রামের জন্য প্রয়োজনীয় ইনপুট লিখুন...',
-                'waiting-run': 'কোড রান করার জন্য অপেক্ষা করছে...',
-                'running': 'কোড রান হচ্ছে...',
-                'getting-suggestion': 'এআই সমাধান তৈরি করছে...',
-                'error-api': '🤖 এআই এপিআই ত্রুটি: সমাধান পাওয়া যায়নি।',
-                'error-run': 'কোড কার্যকর করার সময় ত্রুটি: ',
-                'error-prompt': '...ত্রুটি পাওয়া গেছে। সমাধানের জন্য এআই-এর কাছে জিজ্ঞাসা করুন।',
+            'Bengali': {
+                'doc-title': 'সমন্বিত কোড কার্যকরকারী এবং সমস্যা সমাধানকারী',
+                'main-header': 'পাইথন কোড কার্যকরকারী এবং সমস্যা সমাধানকারী',
+                'sub-header': 'দ্রুত পাইথন কোড চালান, বিশ্লেষণ করুন এবং সমস্যা সমাধান করুন',
+                'lang-label': 'ইন্টারফেস ভাষা:',
+                'ai-lang-label': 'এআই আউটপুট ভাষা:', 
+                'editor-header': 'কোড এডিটর',
+                'code-placeholder': 'এখানে আপনার Python কোড লিখুন...',
+                'run-text-base': 'কোড চালান',
+                'input-header': 'ব্যবহারকারীর ইনপুট',
+                'input-placeholder': 'কোড চালানোর জন্য প্রয়োজনীয় ইনপুট দিন...',
+                'output-header': 'আউটপুট / ফলাফল',
+                'output-placeholder': '-- ফলাফল এখানে দেখাবে --',
+                'ai-header': 'এআই সমস্যা সমাধান',
+                'enable-ai-label': 'এআই চালু করুন:',
+                'ai-reset-text': 'কোড কার্যকর করার সময় কোনো ত্রুটি দেখা দিলে, এখানে এআই পরামর্শ আসবে।',
+                'running-text': 'চলছে...',
+                'output-loading': 'কোড কার্যকর হচ্ছে... অপেক্ষা করুন...',
+                'ai-loading': 'এআই পরামর্শ তৈরি করছে... অনুগ্রহ করে অপেক্ষা করুন...',
+                'ai-error-connect': 'এআই সার্ভিসের সাথে সংযোগ স্থাপন করা যায়নি।',
+                'ai-error-retrieve': 'ত্রুটি: এআই পরামর্শ আনা যায়নি। দয়া করে কনসোল দেখুন।',
             }
         };
 
-        // DOM Elements
-        const codeEditor = document.getElementById('code-editor');
-        const codeInput = document.getElementById('code-input');
-        const codeOutput = document.getElementById('code-output');
-        const suggestionBox = document.getElementById('suggestion-box');
-        const suggestionButton = document.getElementById('suggestion-button');
-        const languageToggle = document.getElementById('language-toggle');
-        
-        // Cache the last error message
-        let lastErrorMessage = ''; 
-        let isRunning = false; 
+        // --- PHASE HIGHLIGHTING LOGIC ---
 
-        // Function to update all UI text based on the selected language
-        function updateUI(lang) {
-            currentLanguage = lang;
-            const texts = uiTexts[lang];
-            
-            // Update all elements using their IDs
-            document.getElementById('header-main-title').textContent = texts['header-main-title'];
-            document.getElementById('header-subtitle').textContent = texts['header-subtitle'];
-            document.getElementById('lang-label').textContent = texts['lang-label'];
-            document.getElementById('code-section-title').textContent = texts['code-section-title'];
-            document.getElementById('input-section-title').textContent = texts['input-section-title'];
-            document.getElementById('run-text').textContent = texts['run-text'];
-            document.getElementById('output-title').textContent = texts['output-title'];
-            document.getElementById('ai-title').textContent = texts['ai-title'];
-            document.getElementById('get-suggestion-text').textContent = texts['get-suggestion-text'];
-            
-            // Update placeholders
-            codeEditor.placeholder = texts['placeholder-editor'];
-            codeInput.placeholder = texts['placeholder-input'];
-            
-            // Check and update suggestion box text
-            const defaultTextBn = uiTexts['bn']['ai-suggestion-text'];
-            const defaultTextEn = uiTexts['en']['ai-suggestion-text'];
-
-            if (suggestionBox.innerHTML.includes(defaultTextBn) || suggestionBox.innerHTML.includes(defaultTextEn)) {
-                suggestionBox.innerHTML = `<span id="ai-suggestion-text" class="text-gray-600 italic">${texts['ai-suggestion-text']}</span>`;
-            }
-            
-            // Check and update default output text
-            const waitingRunBn = uiTexts['bn']['waiting-run'];
-            const waitingRunEn = uiTexts['en']['waiting-run'];
-            if (codeOutput.textContent.includes(waitingRunBn.split('...')[0]) || codeOutput.textContent.includes(waitingRunEn.split('...')[0])) {
-                codeOutput.textContent = texts['waiting-run'];
-            }
+        // Get all phase spans (ONLY in the editor section now)
+        function getAllPhaseSpans() {
+            // Targeting only the spans inside the 'code-editor-phases' div
+            return document.querySelectorAll('#code-editor-phases .phase-span');
         }
 
-        // Initialize UI on load
-        updateUI(languageToggle.value);
-        
-        // Event listener for language change
-        languageToggle.addEventListener('change', (event) => {
-            updateUI(event.target.value);
-        });
+        // Reset all phases to their default style
+        function resetPhases() {
+            const spans = getAllPhaseSpans();
+            spans.forEach(span => {
+                span.classList.remove('phase-error-highlight');
+                span.classList.add('bg-gray-700', 'text-gray-300');
+            });
+        }
 
+        // Highlight a random phase to simulate error detection point
+        function highlightErrorPhase() {
+            const spans = getAllPhaseSpans();
+            if (spans.length === 0) return;
 
-        /** Helper function to manage button states and loading messages */
-        function setRunning(state, buttonId, messageKey) {
-            isRunning = state;
-            const button = document.getElementById(buttonId);
-            const message = uiTexts[currentLanguage][messageKey];
-            
-            button.disabled = state;
-            button.classList.toggle('opacity-50', state);
-            
-            if (state) {
-                button.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${message}`;
-            } else {
-                // Restore original button text
-                if (buttonId === 'run-button') {
-                    button.innerHTML = `<i class="fas fa-play"></i> ${uiTexts[currentLanguage]['run-text']}`;
-                } else if (buttonId === 'suggestion-button') {
-                    button.innerHTML = `<i class="fas fa-magic"></i> ${uiTexts[currentLanguage]['get-suggestion-text']}`;
+            // Use full names for phase indexing
+            const phaseNames = ['Lexical', 'Syntax', 'Semantic', 'Intermediate Code Generation'];
+            const randomIndex = Math.floor(Math.random() * 4);
+            const phaseName = phaseNames[randomIndex];
+
+            // Find all spans matching the random phase name and apply highlight
+            spans.forEach(span => {
+                if (span.textContent.trim() === phaseName) {
+                    span.classList.remove('bg-gray-700', 'text-gray-300');
+                    span.classList.add('phase-error-highlight');
                 }
+            });
+        }
+        
+        // --- LINE NUMBERING LOGIC ---
+        function updateLineNumbers() {
+            const editor = document.getElementById('python-code-editor');
+            const linesDiv = document.getElementById('line-numbers');
+            
+            // Count lines, ensuring there's at least one line even if the content is empty
+            const lineCount = editor.value.split('\n').length;
+            
+            // Create a string of numbers separated by newlines
+            let numbers = Array.from({ length: lineCount }, (_, i) => i + 1).join('\n');
+            
+            linesDiv.textContent = numbers;
+
+            // Adjust height of the line number box to match scroll height of the editor
+            linesDiv.style.minHeight = `${editor.scrollHeight}px`;
+        }
+
+        // Synchronize scroll position between the editor and line numbers
+        function syncScroll() {
+            const editor = document.getElementById('python-code-editor');
+            const linesDiv = document.getElementById('line-numbers');
+            linesDiv.scrollTop = editor.scrollTop;
+        }
+
+        // --- LANGUAGE SWITCH LOGIC ---
+        function switchLanguage(lang) {
+            const t = translations[lang];
+
+            // 1. Update static headers and labels
+            document.getElementById('doc-title').textContent = t['doc-title'];
+            document.getElementById('main-header').textContent = t['main-header'];
+            document.getElementById('sub-header').textContent = t['sub-header'];
+            document.getElementById('lang-label').textContent = t['lang-label'];
+            document.getElementById('editor-header').textContent = t['editor-header'];
+            document.getElementById('run-text').textContent = t['run-text-base'];
+            document.getElementById('input-header').textContent = t['input-header'];
+            document.getElementById('output-header').textContent = t['output-header'];
+            document.getElementById('ai-header').textContent = t['ai-header'];
+            document.getElementById('enable-ai-label').textContent = t['enable-ai-label'];
+            document.getElementById('ai-lang-label').textContent = t['ai-lang-label']; 
+
+            // 2. Update placeholders (if empty, otherwise leave code untouched)
+            const codeEditor = document.getElementById('python-code-editor');
+            if (codeEditor.value.trim() === '') {
+                codeEditor.placeholder = t['code-placeholder'];
+            }
+            document.getElementById('user-input').placeholder = t['input-placeholder'];
+            
+            // 3. Update initial/reset texts
+            if (document.getElementById('output-display').textContent === '-- Output will appear here --' || document.getElementById('output-display').textContent.includes('Output will appear here')) {
+                 document.getElementById('output-display').textContent = t['output-placeholder'];
+            }
+             if (document.getElementById('ai-suggestion-display').textContent.includes('AI suggestion will appear here') || document.getElementById('ai-suggestion-display').textContent.includes('পরামর্শ আসবে')) {
+                 document.getElementById('ai-suggestion-display').textContent = t['ai-reset-text'];
             }
         }
 
 
-        /** Runs the Python code via the Flask backend */
-        async function runCode() {
-            if (isRunning) return;
-            setRunning(true, 'run-button', 'running');
-            
-            codeOutput.textContent = uiTexts[currentLanguage]['running'];
-            suggestionBox.innerHTML = `<span id="ai-suggestion-text" class="text-gray-600 italic">${uiTexts[currentLanguage]['ai-suggestion-text']}</span>`;
-            suggestionButton.disabled = true;
-            lastErrorMessage = '';
+        // --- API & EXECUTION LOGIC ---
+        const maxRetries = 3;
+        const initialDelay = 1000; // 1 second
 
+        async function fetchWithRetry(url, options, retries = 0) {
             try {
-                // NOTE: This is a placeholder for a backend API call to execute Python code.
-                // Since there is no actual Flask backend here, we will simulate a success/error response.
-                const code = codeEditor.value;
-                let result = {};
-
-                if (code.includes('intentional_error')) {
-                    result = {
-                        status: 'error',
-                        output: 'Traceback (most recent call last):\n  File "<string>", line 5, in <module>\nNameError: name \'intentional_error\' is not defined'
-                    };
-                } else {
-                     // Simple simulation of successful execution
-                     let outputText = "Simulated Output:\n";
-                     try {
-                         // A very basic attempt to run the code locally just for display purposes (not real Python execution)
-                         // For actual execution, a dedicated backend is required.
-                         outputText += eval(code) !== undefined ? eval(code) : "Code executed successfully (Output limited by client-side simulation).";
-                     } catch(e) {
-                         // Fallback for simulation failure
-                         outputText += "Code executed successfully. Check the Console for detailed results.";
-                     }
-                    result = {
-                        status: 'success',
-                        output: outputText
-                    };
+                const response = await fetch(url, options);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
-
-
-                codeOutput.textContent = result.output;
-
-                if (result.status === 'error') {
-                    // Cache error message and enable suggestion button
-                    lastErrorMessage = result.output; 
-                    suggestionButton.disabled = false;
-                    
-                    codeOutput.classList.remove('text-editor-text', 'text-green-400');
-                    codeOutput.classList.add('text-red-400', 'font-bold');
-
-                    // Prompt AI suggestion box immediately for error
-                    suggestionBox.innerHTML = `<span class="text-red-500 font-semibold">${lastErrorMessage.split('\n')[0]}</span><br><span class="text-gray-600 italic">${uiTexts[currentLanguage]['error-prompt']}</span>`;
-
-                } else {
-                    // Clear error state for success
-                    lastErrorMessage = '';
-                    suggestionButton.disabled = true;
-                    codeOutput.classList.remove('text-red-400', 'font-bold');
-                    codeOutput.classList.add('text-editor-text', 'text-green-400');
-                }
-
+                return response;
             } catch (error) {
-                // This catches errors in the JS execution flow, not Python errors
-                codeOutput.textContent = `${uiTexts[currentLanguage]['error-run']} ${error.message}`;
-                codeOutput.classList.add('text-red-400');
-            } finally {
-                setRunning(false, 'run-button', 'running');
+                if (retries < maxRetries) {
+                    const delay = initialDelay * Math.pow(2, retries);
+                    console.log(`Retrying API call in ${delay / 1000}s...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return fetchWithRetry(url, options, retries + 1);
+                } else {
+                    throw error;
+                }
             }
         }
 
-        // Removed analyzeCode() function as analysis buttons were removed.
+        async function runCode() {
+            const uiLang = document.getElementById('interface-language-select').value;
+            const t = translations[uiLang];
+            const aiOutputLang = document.getElementById('ai-language-select').value; 
 
+            const code = document.getElementById('python-code-editor').value;
+            const userInput = document.getElementById('user-input').value;
+            const outputDisplay = document.getElementById('output-display');
+            const aiToggle = document.getElementById('ai-suggestion-toggle').checked;
+            const aiDisplay = document.getElementById('ai-suggestion-display');
+            const runTextEl = document.getElementById('run-text');
+            const loadingSpinner = document.getElementById('loading-spinner');
 
-        /** Fetches AI Suggestion for the last error using Gemini API */
-        async function getSuggestion() {
-            if (isRunning || !lastErrorMessage) return;
-            setRunning(true, 'suggestion-button', 'getting-suggestion');
+            // Reset phases and set loading state
+            resetPhases(); // Reset any error highlighting
+            runTextEl.textContent = t['running-text'];
+            loadingSpinner.classList.remove('hidden');
+
+            // Clear previous outputs and set loading styles
+            outputDisplay.textContent = t['output-loading'];
+            outputDisplay.classList.remove('text-red-400', 'text-green-400');
+            outputDisplay.classList.add('text-yellow-400');
             
-            suggestionBox.innerHTML = `<i class="fas fa-spinner fa-spin text-primary-color"></i> <span class="text-primary-color">${uiTexts[currentLanguage]['getting-suggestion']}</span>`;
-            suggestionBox.classList.remove('border-dashed', 'border-gray-400');
-            suggestionBox.classList.add('border-primary-color', 'animate-pulse');
+            const aiResetText = t['ai-reset-text'];
+            aiDisplay.textContent = aiResetText;
+            aiDisplay.classList.remove('text-red-400', 'text-green-400');
+            aiDisplay.classList.add('text-gray-400');
 
-            // --- Gemini API Call Setup ---
-            const userQuery = `Analyze the following Python error message and the code block. Provide a concise, step-by-step solution to fix the error in ${currentLanguage === 'bn' ? 'Bengali' : 'English'}.
-
-Code:
-\`\`\`python
-${codeEditor.value}
-\`\`\`
-
-Error Message:
-${lastErrorMessage}`;
+            // Simulate code execution (Delay added for effect)
+            await new Promise(resolve => setTimeout(resolve, 1500)); 
             
-            const systemPrompt = "You are an expert AI Python Debugger and Code Analyst. Your response must be clear, actionable, and formatted using Markdown for readability (e.g., use code blocks for suggested fixes).";
+            let executionSuccess = true;
+            let executionOutput = '';
 
-            const apiKey = ""; 
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            // Simple error detection simulation 
+            if (code.includes('def') && !code.includes('return')) {
+                // Simulate a common logic error (Semantic/ICG phase issue)
+                executionSuccess = false;
+                executionOutput = "Traceback (most recent call last):\n  File \"<stdin>\", line 1, in <module>\nTypeError: Function call did not return a value. (Maybe you forgot a 'return' statement in your function?)";
+            } else if (code.includes('while') && !code.includes(':')) {
+                // Simulate syntax error (Syntax phase issue)
+                executionSuccess = false;
+                executionOutput = "Traceback (most recent call last):\n  File \"<stdin>\", line 1\nSyntaxError: expected ':' after 'while' condition";
+            } else {
+                // Simulate successful execution with some output
+                const successMsg = uiLang === 'Bengali' ? 'কোড সফলভাবে কার্যকর হয়েছে।' : 'Code executed successfully.';
+                const programOutput = uiLang === 'Bengali' ? 'প্রোগ্রাম আউটপুট:' : 'Program Output:';
+                const inputUsed = uiLang === 'Bengali' ? 'ব্যবহৃত ইনপুট:' : 'Input used:';
+
+                executionOutput = `${successMsg}
+-------------------------------
+${programOutput}
+Result: 8
+${inputUsed} ${userInput || (uiLang === 'Bengali' ? 'নেই' : 'None')}
+-------------------------------`;
+            }
+
+            // Step 2: Display results
+            if (executionSuccess) {
+                outputDisplay.textContent = executionOutput;
+                outputDisplay.classList.remove('text-yellow-400');
+                outputDisplay.classList.add('text-green-400');
+            } else {
+                outputDisplay.textContent = executionOutput;
+                outputDisplay.classList.remove('text-yellow-400', 'text-green-400');
+                outputDisplay.classList.add('text-red-400');
+                highlightErrorPhase(); // Highlight a phase on error
+            }
+            
+            // Step 3: Trigger AI suggestion if toggle is ON and an error occurred
+            if (!executionSuccess && aiToggle) {
+                // Pass the specific language for the AI output
+                await getAISuggestion(code, executionOutput, uiLang, aiOutputLang); 
+            } else {
+                // Set initial text color back if not running AI
+                aiDisplay.classList.remove('text-yellow-400');
+                aiDisplay.classList.add('text-gray-400');
+            }
+            
+            // Reset button state
+            runTextEl.textContent = t['run-text-base'];
+            loadingSpinner.classList.add('hidden');
+        }
+
+        async function getAISuggestion(code, error, uiLanguage, aiLanguage) {
+            const t = translations[uiLanguage]; // Use UI language for loading/error messages
+
+            // Construct the prompt to request the output in the desired AI language
+            const systemPrompt = `You are an expert Python debugger and helpful AI assistant. Analyze the provided Python code and its corresponding error message. Provide a concise, clear suggestion for how the user can fix the error. The response MUST be strictly in ${aiLanguage}. Do not include any code blocks in your final output, just the explanation.`;
+            
+            const userQuery = `I received the following error when running my Python code. Please analyze and provide a fix.
+
+            --- Python Code ---
+            ${code}
+            --- Error Message ---
+            ${error}`;
 
             const payload = {
                 contents: [{ parts: [{ text: userQuery }] }],
-                systemInstruction: { parts: [{ text: systemPrompt }] },
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                },
             };
-            
-            // Exponential backoff retry loop
-            const maxRetries = 3;
-            let attempts = 0;
-            let response;
-            let result;
 
-            while (attempts < maxRetries) {
-                try {
-                    response = await fetch(apiUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
+            const options = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            };
 
-                    result = await response.json();
-                    
-                    if (response.ok) {
-                        break; // Success, exit loop
-                    }
-
-                } catch (error) {
-                    console.error("Fetch attempt failed:", error);
-                }
-
-                attempts++;
-                if (attempts < maxRetries) {
-                    const delay = Math.pow(2, attempts) * 1000;
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                } else {
-                    // Last attempt failed
-                    result = { error: { message: "Max retries reached. Could not fetch response." } };
-                }
-            }
-            // --- Gemini API Call End ---
-
+            // Display loading state using the UI language translation
+            const aiDisplay = document.getElementById('ai-suggestion-display');
+            aiDisplay.textContent = t['ai-loading'];
+            aiDisplay.classList.add('text-yellow-400');
+            aiDisplay.classList.remove('text-red-400', 'text-gray-400', 'text-white');
 
             try {
-                const candidate = result?.candidates?.[0];
-                let suggestionText = uiTexts[currentLanguage]['error-api'];
+                const response = await fetchWithRetry(apiUrl, options);
+                const result = await response.json();
+                
+                const suggestionText = result.candidates?.[0]?.content?.parts?.[0]?.text || 
+                                       `${t['ai-error-retrieve']} (${aiLanguage})`;
 
-                if (candidate && candidate.content?.parts?.[0]?.text) {
-                    suggestionText = candidate.content.parts[0].text;
-                    suggestionBox.textContent = suggestionText; // Use textContent to avoid XSS from markdown/code blocks
-                    suggestionBox.classList.remove('border-primary-color', 'animate-pulse');
-                    suggestionBox.classList.add('border-green-500', 'bg-green-50');
-                } else if (result.error) {
-                     suggestionBox.textContent = `${uiTexts[currentLanguage]['error-api']} ${result.error.message}`;
-                     suggestionBox.classList.remove('border-primary-color', 'animate-pulse');
-                     suggestionBox.classList.add('border-red-500', 'bg-red-50');
-                }
-
+                aiDisplay.textContent = suggestionText;
+                aiDisplay.classList.remove('text-yellow-400');
+                aiDisplay.classList.add('text-white');
 
             } catch (error) {
-                suggestionBox.textContent = `${uiTexts[currentLanguage]['error-api']} ${error.message}`;
-                suggestionBox.classList.remove('border-primary-color', 'animate-pulse');
-                suggestionBox.classList.add('border-red-500', 'bg-red-50');
-
-            } finally {
-                setRunning(false, 'suggestion-button', 'getting-suggestion');
+                const errorMsg = t['ai-error-connect'];
+                aiDisplay.textContent = `${errorMsg} Error: ${error.message}`;
+                aiDisplay.classList.add('text-red-400');
+                aiDisplay.classList.remove('text-yellow-400', 'text-white');
             }
         }
-
+        
+        // Initial setup and event listeners
+        window.onload = () => {
+             updateLineNumbers(); // Initial line numbers
+             // Run updateLineNumbers whenever the content changes, and sync scroll
+             const editor = document.getElementById('python-code-editor');
+             
+             // Attach listeners
+             editor.addEventListener('input', updateLineNumbers);
+             editor.addEventListener('scroll', syncScroll);
+             
+             // Initial language set (redundant but ensures placeholders are correct)
+             switchLanguage('English'); 
+        };
     </script>
+
 </body>
 </html>
