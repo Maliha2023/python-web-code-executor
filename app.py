@@ -5,8 +5,12 @@ import time
 import re
 from functools import wraps
 from flask import Flask, render_template, request, jsonify
+# subprocess.run এর পরিবর্তে Popen ব্যবহার করা হয়েছে যা আপনার আগের কোডে ছিল,
+# তবে টেম্পোরারি ফাইল ব্যবহারের মাধ্যমে এটি আরও শক্তিশালী করা হয়েছে।
 from subprocess import Popen, PIPE, TimeoutExpired
 from typing import Callable, Any
+import tempfile  # নতুন আমদানি
+import sys       # নতুন আমদানি
 
 app = Flask(__name__)
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
@@ -52,7 +56,6 @@ def fetch_gemini_suggestion(error_message: str, code: str, language: str) -> str
     """Generates an AI-powered error recovery suggestion using the Gemini API. (Generates AI solution for error)"""
     
     # Define the target language based on user selection
-    # Using 'bn' for Bengali based on the previous client-side code assumption
     target_lang = "Bengali (Bangla Latin script)" if language == 'bn' else "English"
 
     # AI System Prompt - Now dynamically sets the output language
@@ -70,7 +73,7 @@ def fetch_gemini_suggestion(error_message: str, code: str, language: str) -> str
         "The user attempted to run the following Python code:\n\n"
         f"--- CODE ---\n{code}\n\n"
         "And received this error/output:\n\n"
-        f"--- ERROR ---\n{error_message}\n\n"
+        f"--- ERROR --TUNING ---\n{error_message}\n\n"
         "Provide a specific error recovery suggestion and solution."
     )
     
@@ -102,6 +105,7 @@ def fetch_gemini_suggestion(error_message: str, code: str, language: str) -> str
 # ----------------------------------------------------------------------
 # 4. Compiler Analysis Functions (Helper functions for Lexical, Syntax, etc.)
 # ----------------------------------------------------------------------
+# (The compiler analysis functions remain unchanged as they are not the source of the timeout issue)
 
 def perform_lexical_analysis(code: str) -> str:
     """Performs basic Python lexical analysis (tokenization)."""
@@ -180,60 +184,78 @@ def execute_code_and_analyze():
     """
     data = request.json
     code = data.get('code', '')
-    # The client-side JS sends the analysis types in an array called 'analyses'
     analyses_requested = data.get('analyses', [])
     
-    # 1. Execute Code
+    # Execution Config
+    EXECUTION_TIMEOUT = 5 
     
-    filename = 'temp_code.py'
+    # 1. Setup and Execution
+    
+    tmp_file_path = None
     output = ""
     status = 'success'
     error_message = ""
+    process = None # Popen object holder
     
     try:
-        with open(filename, 'w', encoding='utf-8') as f:
-            f.write(code)
-    except IOError:
-        output = "Error: অস্থায়ী ফাইলে কোড লিখতে পারিনি।"
-        status = "error"
-    
-    if status == 'success':
-        try:
-            # Popen: Start non-blocking process
-            process = Popen(['python3', filename], stdin=PIPE, stdout=PIPE, stderr=PIPE, text=True, encoding='utf-8')
-            
-            # communicate(): Gather output, with 5 second timeout. No user input in this demo.
-            stdout, stderr = process.communicate(timeout=5)
-            
-            if stderr:
-                output = stderr
-                error_message = stderr  # Store error for AI suggestion
-                status = 'error'
-            else:
-                output = stdout
-                status = 'success'
+        # ধাপে ১: একটি টেম্পোরারি ফাইলে ইউজারের কোড লেখা
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py', encoding='utf-8') as tmp_file:
+            tmp_file.write(code)
+            tmp_file_path = tmp_file.name
 
-        except TimeoutExpired:
+        # ধাপে ২: Popen ব্যবহার করে সাবপ্রসেস শুরু করা
+        # sys.executable নিশ্চিত করে যে সঠিক Python ইন্টারপ্রেটার ব্যবহার করা হয়েছে।
+        process = Popen(
+            [sys.executable, tmp_file_path], 
+            stdin=PIPE, 
+            stdout=PIPE, 
+            stderr=PIPE, 
+            text=True, 
+            encoding='utf-8'
+        )
+        
+        # ধাপে ৩: communicate() এর মাধ্যমে আউটপুট সংগ্রহ করা, timeout সহ
+        # এই লাইনটিই ৫ সেকেন্ড পর প্রসেসটিকে TimeoutExpired এরর দেবে।
+        stdout, stderr = process.communicate(timeout=EXECUTION_TIMEOUT)
+        
+        # ধাপে ৪: ফলাফল প্রক্রিয়া করা
+        if stderr:
+            output = stderr
+            error_message = stderr 
+            status = 'error'
+        else:
+            output = stdout
+            status = 'success'
+
+    except TimeoutExpired:
+        # প্রসেসটিকে অবশ্যই টার্মিনেট করতে হবে যদি টাইমআউট হয়।
+        if process:
             process.kill()
-            output = "Execution Timeout Error: কোড ৫ সেকেন্ডের মধ্যে শেষ হয়নি।"
-            error_message = output
-            status = 'error'
-        except Exception as e:
-            output = f"Runtime Error: {str(e)}"
-            error_message = output
-            status = 'error'
-        finally:
-            if os.path.exists(filename):
-                os.remove(filename)
+            # আউটপুট বাফারে থাকা ডেটা যদি থাকে, সেটি ডিসকার্ড করে দেওয়া ভালো
+            # যদিও টাইমআউটের ক্ষেত্রে stderr/stdout-এ কিছু নাও থাকতে পারে।
+            process.communicate() 
+        output = "Execution Timeout Error: কোড ৫ সেকেন্ডের মধ্যে শেষ হয়নি এবং বন্ধ করা হয়েছে।"
+        error_message = output
+        status = 'error'
+    
+    except Exception as e:
+        # অন্যান্য অভ্যন্তরীণ বা রানটাইম এরর হ্যান্ডেল করা
+        output = f"Runtime Error: {str(e)}"
+        error_message = output
+        status = 'error'
+    
+    finally:
+        # ধাপে ৫: টেম্পোরারি ফাইলটি অবশ্যই ডিলিট করা
+        if tmp_file_path and os.path.exists(tmp_file_path):
+            os.remove(tmp_file_path)
 
-    # 2. Compiler Analysis
+    # 2. Compiler Analysis (No change)
     
     analysis_results = {}
     for phase in analyses_requested:
         if phase in ANALYSIS_MAP:
-            # The key names here match the client-side JS expectation (lexical, syntax, etc.)
             analysis_results[phase] = ANALYSIS_MAP[phase](code)
-        
+            
     # 3. AI Suggestion (Only if an error occurred)
     
     error_suggestion = None
@@ -248,19 +270,15 @@ def execute_code_and_analyze():
 
     # 4. Return Unified Response
     
-    # Ensure the JSON structure matches the client-side expectations
     response_data = {
         "output": output,
         "status": status,
         "analysis_results": analysis_results,
-        "error_suggestion": error_suggestion # Will be null if status is 'success'
+        "error_suggestion": error_suggestion 
     }
     
     return jsonify(response_data)
 
-
-# We are removing the redundant /run_code, /analyze_code, and /get_suggestion
-# routes as their logic is now unified in /execute.
 
 if __name__ == '__main__':
     # Flask runs on port 5000 in the canvas environment
