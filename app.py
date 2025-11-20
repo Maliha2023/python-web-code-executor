@@ -4,12 +4,12 @@ import requests
 import time
 import re
 from functools import wraps
-from flask import Flask, render_template, request, jsonify, make_response
+from flask import Flask, render_template, request, jsonify
 from subprocess import Popen, PIPE, TimeoutExpired
 from typing import Callable, Any
 
 app = Flask(__name__)
-app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False 
+app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
 
 # ----------------------------------------------------------------------
 # 1. API and Authentication Constants
@@ -23,7 +23,7 @@ API_KEY = os.environ.get("GEMINI_API_KEY", "")
 # ----------------------------------------------------------------------
 
 def api_retry_logic(retries: int = 5, initial_delay: int = 1) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator with Exponential Backoff for API calls. (API কলে বারবার চেষ্টার জন্য ডেকোরেটর)"""
+    """Decorator with Exponential Backoff for API calls. (API call retry logic)"""
     def decorator(func: Callable[..., Any]) -> Callable[[Any, ...], Any]:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -49,16 +49,17 @@ def api_retry_logic(retries: int = 5, initial_delay: int = 1) -> Callable[[Calla
 
 @api_retry_logic()
 def fetch_gemini_suggestion(error_message: str, code: str, language: str) -> str:
-    """Generates an AI-powered error recovery suggestion using the Gemini API. (এআই দিয়ে ত্রুটি সমাধানের পরামর্শ তৈরি করে)"""
+    """Generates an AI-powered error recovery suggestion using the Gemini API. (Generates AI solution for error)"""
     
     # Define the target language based on user selection
+    # Using 'bn' for Bengali based on the previous client-side code assumption
     target_lang = "Bengali (Bangla Latin script)" if language == 'bn' else "English"
 
     # AI System Prompt - Now dynamically sets the output language
     system_prompt = (
         "Act as an expert Python programming tutor and compiler error recovery system. "
         "Analyze the user's code and the traceback/error provided. "
-        "Your response must be a single, concise paragraph. "
+        "Your response must be a single, concise paragraph, focused entirely on the solution. "
         "The suggestion should be specifically tailored to fix the error and suggest the best solution for the user, focusing on the line number if available. "
         f"MOST IMPORTANT: The entire response MUST BE in {target_lang}. "
         "DO NOT include markdown formatting, bolding, or headings in your output."
@@ -99,136 +100,168 @@ def fetch_gemini_suggestion(error_message: str, code: str, language: str) -> str
 
 
 # ----------------------------------------------------------------------
-# 4. Flask Routes
+# 4. Compiler Analysis Functions (Helper functions for Lexical, Syntax, etc.)
+# ----------------------------------------------------------------------
+
+def perform_lexical_analysis(code: str) -> str:
+    """Performs basic Python lexical analysis (tokenization)."""
+    tokens = []
+    token_specification = [
+        ('STRING', r'"[^"]*"'),
+        ('NUMBER', r'\b\d+(\.\d+)?\b'),
+        ('KEYWORD', r'\b(def|return|if|else|while|for|in|print|class|import|from|break|continue)\b'),
+        ('IDENTIFIER', r'[a-zA-Z_][a-zA-Z0-9_]*'),
+        ('OPERATOR', r'[+\-*/%=<>!&|]+'),
+        ('DELIMITER', r'[\(\)\[\]\{\}:,.]'),
+        ('WHITESPACE', r'[ \t]+'),
+        ('NEWLINE', r'\n'),
+        ('COMMENT', r'#.*'),
+        ('MISMATCH', r'.') 
+    ]
+    
+    tok_regex = '|'.join('(?P<%s>%s)' % pair for pair in token_specification)
+    
+    lineno = 1
+    
+    for mo in re.finditer(tok_regex, code):
+        kind = mo.lastgroup
+        value = mo.group(kind)
+        
+        if kind == 'NEWLINE':
+            lineno += 1
+            continue
+        elif kind == 'WHITESPACE' or kind == 'COMMENT':
+            continue
+        elif kind == 'MISMATCH':
+            tokens.append(f'!!! LEXICAL ERROR at line {lineno}: Unrecognized character {repr(value)}')
+            break
+        else:
+            tokens.append(f"L{lineno}: <{kind}>: {value}")
+
+    output = "\n".join(tokens)
+    if not output and code.strip():
+        return "কোড বিশ্লেষণ করা হয়েছে, কিন্তু অর্থপূর্ণ টোকেন পাওয়া যায়নি (সম্ভবত শুধুমাত্র মন্তব্য বা ফাঁকা স্থান ছিল)।"
+    return output
+
+# Placeholders for other phases
+def perform_syntax_analysis(code: str) -> str:
+    return "এই ধাপে অ্যাবস্ট্রাক্ট সিনট্যাক্স ট্রি (AST) তৈরি করে ব্যাকরণ পরীক্ষা করা হয়। (এখনো প্রয়োগ করা হয়নি)"
+
+def perform_semantic_analysis(code: str) -> str:
+    return "এই ধাপে টাইপের সামঞ্জস্য এবং ভেরিয়েবল ঘোষণা পরীক্ষা করা হয়। (এখনো প্রয়োগ করা হয়নি)"
+
+def perform_icg(code: str) -> str:
+    return "এই ধাপে থ্রি-অ্যাড্রেস কোড বা অনুরূপ ইন্টারমিডিয়েট উপস্থাপনা তৈরি করা হয়। (এখনো প্রয়োগ করা হয়নি)"
+
+# Mapping analysis phase names to their corresponding functions
+ANALYSIS_MAP = {
+    'lexical': perform_lexical_analysis,
+    'syntax': perform_syntax_analysis,
+    'semantic': perform_semantic_analysis,
+    'icg': perform_icg
+}
+
+
+# ----------------------------------------------------------------------
+# 5. Flask Routes (Unified Execution and Analysis)
 # ----------------------------------------------------------------------
 
 @app.route('/')
 def index():
-    """Renders the root page. (মূল পৃষ্ঠা রেন্ডার করে)"""
+    """Renders the root page. (Renders the root page)"""
     return render_template('index.html')
 
-@app.route('/run_code', methods=['POST'])
-def run_code():
-    """Executes the Python code. (পাইথন কোড কার্যকর করে)"""
+@app.route('/execute', methods=['POST'])
+def execute_code_and_analyze():
+    """
+    Executes Python code and optionally performs compiler phase analysis.
+    This route unifies the logic previously in /run_code and /analyze_code.
+    (কোড কার্যকর করে এবং ঐচ্ছিকভাবে কম্পাইলার বিশ্লেষণ করে)
+    """
     data = request.json
     code = data.get('code', '')
-    input_data = data.get('input', '')
+    # The client-side JS sends the analysis types in an array called 'analyses'
+    analyses_requested = data.get('analyses', [])
     
-    # Write the code to a temporary file
+    # 1. Execute Code
+    
     filename = 'temp_code.py'
+    output = ""
+    status = 'success'
+    error_message = ""
+    
     try:
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(code)
     except IOError:
-        return jsonify(output="Error: অস্থায়ী ফাইলে কোড লিখতে পারিনি।", status="error")
-
-    # Use subprocess to run the code
-    try:
-        # Popen: Start non-blocking process
-        process = Popen(['python3', filename], stdin=PIPE, stdout=PIPE, stderr=PIPE, text=True, encoding='utf-8')
-        
-        # communicate(): Send input and gather output, with 5 second timeout
-        stdout, stderr = process.communicate(input=input_data, timeout=5)
-        
-        if stderr:
-            output = stderr
-            status = 'error'
-        else:
-            output = stdout
-            status = 'success'
-
-    except TimeoutExpired:
-        process.kill()
-        output = "Execution Timeout Error: কোড ৫ সেকেন্ডের মধ্যে শেষ হয়নি।"
-        status = 'error'
-    except Exception as e:
-        output = f"Runtime Error: {str(e)}"
-        status = 'error'
-    finally:
-        os.remove(filename)
-
-    return jsonify(output=output, status=status)
-
-
-@app.route('/analyze_code', methods=['POST'])
-def analyze_code():
-    """Performs compiler phase analysis (e.g., Lexical Analysis). (কম্পাইলার ফেজ বিশ্লেষণ করে)"""
-    data = request.json
-    code = data.get('code', '')
-    phase = data.get('phase', '')
-
-    if phase == 'lex':
-        # --- PHASE 1: LEXICAL ANALYSIS (Tokenization) ---
-        tokens = []
-        token_specification = [
-            ('STRING',  r'"[^"]*"'),
-            ('NUMBER',  r'\b\d+(\.\d+)?\b'),
-            ('KEYWORD', r'\b(def|return|if|else|while|for|in|print|class|import|from)\b'),
-            ('IDENTIFIER', r'[a-zA-Z_][a-zA-Z0-9_]*'),
-            ('OPERATOR', r'[+\-*/%=<>!]+'),
-            ('DELIMITER', r'[\(\)\[\]\{\}:,]'),
-            ('WHITESPACE', r'[ \t]+'),
-            ('NEWLINE', r'\n'),
-            ('COMMENT', r'#.*'),
-            ('MISMATCH', r'.') 
-        ]
-        
-        tok_regex = '|'.join('(?P<%s>%s)' % pair for pair in token_specification)
-        
-        lineno = 1
-        
-        for mo in re.finditer(tok_regex, code):
-            kind = mo.lastgroup
-            value = mo.group(kind)
-            
-            if kind == 'NEWLINE':
-                lineno += 1
-                continue
-            elif kind == 'WHITESPACE' or kind == 'COMMENT':
-                continue
-            elif kind == 'MISMATCH':
-                tokens.append(f'!!! LEXICAL ERROR at line {lineno}: Unrecognized character {repr(value)}')
-                break
-            else:
-                tokens.append(f"L{lineno}: <{kind}>: {value}")
-
-        output = "\n".join(tokens)
-        if not output and code.strip():
-             output = "কোড বিশ্লেষণ করা হয়েছে, কিন্তু অর্থপূর্ণ টোকেন পাওয়া যায়নি (সম্ভবত শুধুমাত্র মন্তব্য বা ফাঁকা স্থান ছিল)।"
-             
-        return jsonify(output=f"--- LEXICAL ANALYSIS (Token Stream) ---\n\n{output}", status="success")
+        output = "Error: অস্থায়ী ফাইলে কোড লিখতে পারিনি।"
+        status = "error"
     
-    elif phase == 'syntax':
-        return jsonify(output="--- SYNTAX ANALYSIS (Phase 2: YACC Equivalent) ---\n\nএই ধাপে অ্যাবস্ট্রাক্ট সিনট্যাক্স ট্রি (AST) তৈরি করে ব্যাকরণ পরীক্ষা করা হয়। (এই ডেমোতে এখনও প্রয়োগ করা হয়নি)", status="info")
-    elif phase == 'semantic':
-        return jsonify(output="--- SEMANTIC ANALYSIS (Phase 3) ---\n\nএই ধাপে টাইপের সামঞ্জস্য এবং ভেরিয়েবল ঘোষণা পরীক্ষা করা হয়। (এই ডেমোতে এখনও প্রয়োগ করা হয়নি)", status="info")
-    elif phase == 'icg':
-        return jsonify(output="--- INTERMEDIATE CODE GENERATION (Phase 4) ---\n\nএই ধাপে থ্রি-অ্যাড্রেস কোড বা অনুরূপ ইন্টারমিডিয়েট উপস্থাপনা তৈরি করা হয়। (এই ডেমোতে এখনও প্রয়োগ করা হয়নি)", status="info")
+    if status == 'success':
+        try:
+            # Popen: Start non-blocking process
+            process = Popen(['python3', filename], stdin=PIPE, stdout=PIPE, stderr=PIPE, text=True, encoding='utf-8')
+            
+            # communicate(): Gather output, with 5 second timeout. No user input in this demo.
+            stdout, stderr = process.communicate(timeout=5)
+            
+            if stderr:
+                output = stderr
+                error_message = stderr  # Store error for AI suggestion
+                status = 'error'
+            else:
+                output = stdout
+                status = 'success'
+
+        except TimeoutExpired:
+            process.kill()
+            output = "Execution Timeout Error: কোড ৫ সেকেন্ডের মধ্যে শেষ হয়নি।"
+            error_message = output
+            status = 'error'
+        except Exception as e:
+            output = f"Runtime Error: {str(e)}"
+            error_message = output
+            status = 'error'
+        finally:
+            if os.path.exists(filename):
+                os.remove(filename)
+
+    # 2. Compiler Analysis
+    
+    analysis_results = {}
+    for phase in analyses_requested:
+        if phase in ANALYSIS_MAP:
+            # The key names here match the client-side JS expectation (lexical, syntax, etc.)
+            analysis_results[phase] = ANALYSIS_MAP[phase](code)
         
-    return jsonify(output="অকার্যকর কম্পাইলার ফেজ অনুরোধ করা হয়েছে।", status="error")
+    # 3. AI Suggestion (Only if an error occurred)
+    
+    error_suggestion = None
+    if status == 'error' and error_message:
+        try:
+            # Currently hardcoding language 'bn' (Bengali) as per the overall context
+            error_suggestion = fetch_gemini_suggestion(error_message, code, 'bn')
+        except Exception as e:
+            app.logger.error(f"Failed to fetch AI suggestion: {e}")
+            error_suggestion = "🤖 এআই পরামর্শ দিতে ব্যর্থ হয়েছে।"
 
 
-@app.route('/get_suggestion', methods=['POST'])
-def get_suggestion():
-    """Generates a solution from the error message using Gemini. (ত্রুটি বার্তা থেকে জেমিনি ব্যবহার করে সমাধান তৈরি করে)"""
-    data = request.json
-    error_message = data.get('error_message', '')
-    code = data.get('code', '')
-    language = data.get('language', 'bn') # Default to Bengali
+    # 4. Return Unified Response
+    
+    # Ensure the JSON structure matches the client-side expectations
+    response_data = {
+        "output": output,
+        "status": status,
+        "analysis_results": analysis_results,
+        "error_suggestion": error_suggestion # Will be null if status is 'success'
+    }
+    
+    return jsonify(response_data)
 
-    if not error_message or not code:
-        return jsonify(suggestion="Error: ত্রুটি বার্তা বা কোড সরবরাহ করা হয়নি।"), 400
 
-    try:
-        # Pass the language parameter to the Gemini function
-        suggestion = fetch_gemini_suggestion(error_message, code, language)
-        return jsonify(suggestion=suggestion, status="success")
-    except requests.exceptions.HTTPError as e:
-        app.logger.error(f"Gemini API HTTP Error: {e.response.text}")
-        return jsonify(suggestion=f"🤖 এআই এপিআই ত্রুটি (HTTP {e.response.status_code}): সম্ভবত এপিআই কী ভুল বা ব্যবহারের সীমা অতিক্রম করেছে।", status="error"), 500
-    except Exception as e:
-        app.logger.error(f"Unexpected Error in get_suggestion: {e}")
-        return jsonify(suggestion=f"🤖 এআই এপিআই ত্রুটি: সমাধান তৈরি করার সময় একটি অপ্রত্যাশিত ত্রুটি ঘটেছে।", status="error"), 500
+# We are removing the redundant /run_code, /analyze_code, and /get_suggestion
+# routes as their logic is now unified in /execute.
 
 if __name__ == '__main__':
+    # Flask runs on port 5000 in the canvas environment
     app.run(debug=True, host='0.0.0.0', port=5000)
