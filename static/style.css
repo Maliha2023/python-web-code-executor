@@ -1,180 +1,62 @@
-/* Global Styles and Reset */
+/* NOTE: The actual CSS code for the app is embedded 
+within the <style> tags of index.html. 
+This file contains the extracted custom styles only.
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Noto+Sans+Bengali:wght@100..900&display=swap');
+
+:root {
+    --primary-color: #4c51bf; 
+    --primary-light: #6b46c1; 
+    --secondary-color: #f7fafc; 
+    --text-color: #2d3748; 
+    --editor-bg: #1e1e1e; 
+    --editor-text: #d4d4d4; 
+}
+
 body {
-    font-family: 'Roboto Mono', monospace;
-    background-color: #121212; /* Dark background */
-    color: #e0e0e0; /* Light text color */
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
+    font-family: 'Inter', 'Noto Sans Bengali', sans-serif;
+    background-color: var(--secondary-color);
+    color: var(--text-color);
     min-height: 100vh;
-}
-
-header {
-    background-color: #1f1f1f; /* Darker header background */
-    color: #1a73e8; /* Deep Blue brand color */
-    padding: 20px 30px;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
-    text-align: center;
-    border-bottom: 2px solid #1a73e8; /* Blue accent line */
-}
-
-header h1 {
-    margin: 0;
-    font-size: 2em;
-    font-weight: 700;
-}
-
-header p {
-    color: #b0b0b0;
-    font-size: 0.9em;
-    margin-top: 5px;
-}
-
-main {
-    flex-grow: 1;
-    display: flex;
-    padding: 30px;
-    gap: 30px;
-    max-width: 1600px;
-    width: 100%;
-    margin: 0 auto;
-}
-
-.editor-section {
-    flex: 3;
     display: flex;
     flex-direction: column;
 }
 
-.io-section {
-    flex: 2;
-    display: flex;
-    flex-direction: column;
+/* Editor Custom Scrollbar */
+.code-editor, .code-output, .suggestion-box {
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary-color) #333;
 }
 
-.input-output-container {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 30px;
+.code-editor::-webkit-scrollbar, .code-output::-webkit-scrollbar, .suggestion-box::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
 }
 
-/* --- Line Numbering Container Styles (NEW) --- */
-.editor-container {
-    display: flex;
-    flex-grow: 1;
-    border: 1px solid #3a3a3a;
-    background-color: #1e1e1e;
-    border-radius: 8px;
-    box-shadow: 0 0 15px rgba(0, 0, 0, 0.4);
-    overflow: hidden; /* Ensure content stays inside the rounded borders */
-    margin-top: -1px; /* Overlap with header-bar border */
+.code-editor::-webkit-scrollbar-thumb, .code-output::-webkit-scrollbar-thumb, .suggestion-box::-webkit-scrollbar-thumb {
+    background-color: var(--primary-light);
+    border-radius: 4px;
 }
 
-.line-numbers {
-    flex-shrink: 0; /* Keep line number column fixed width */
-    background-color: #252526; /* Slightly darker than editor area */
-    color: #5b5b5b; /* Muted text color for numbers */
-    padding: 15px 10px;
-    text-align: right;
-    font-size: 1.0em;
-    line-height: 1.5;
-    user-select: none; /* Prevent selection of line numbers */
-    overflow: hidden;
-    white-space: pre; /* Essential for line breaks */
-    min-height: 100%; /* Important for matching editor height */
-    box-sizing: border-box;
-    width: 35px; /* Fixed width for the numbers column */
+.code-editor::-webkit-scrollbar-track, .code-output::-webkit-scrollbar-track, .suggestion-box::-webkit-scrollbar-track {
+    background: #2d2d2d;
 }
 
-/* --- Text Areas (Code Editor, Input, Output) --- */
-textarea,
-pre {
-    border: 1px solid #3a3a3a; 
-    background-color: #1e1e1e; 
-    color: #cccccc;
-    padding: 15px;
-    resize: none;
-    box-sizing: border-box;
-    font-size: 1.0em; 
-    line-height: 1.5;
-    border-radius: 8px; 
-    box-shadow: 0 0 15px rgba(0, 0, 0, 0.4); 
-    font-family: 'Roboto Mono', monospace;
+/* Monospace font for code areas */
+.code-editor, .code-output {
+    font-family: 'Consolas', 'Monaco', 'Andale Mono', 'Ubuntu Mono', monospace;
+    white-space: pre; 
 }
 
-#code-editor {
-    flex-grow: 1;
-    width: 100%;
-    border: none; /* Border handled by .editor-container */
-    background-color: #1e1e1e;
-    color: #cccccc;
-    padding: 15px;
-    box-shadow: none;
-    border-radius: 0 8px 8px 0; /* Only right side rounded */
-    margin: 0;
-    font-family: 'Roboto Mono', monospace;
-    overflow-y: auto; /* Allow scrolling */
-}
-
-#user-input, #output-area {
-    width: 100%;
-    min-height: 180px;
-    flex-grow: 1;
-}
-
-/* --- Utility Styles --- */
-.header-bar {
-    background-color: #2a2a2a; 
-    color: #e0e0e0; 
-    padding: 10px 15px;
-    margin-bottom: 0px; 
-    border-radius: 8px 8px 0 0;
-    font-weight: bold;
-    font-size: 0.95em;
-    border-bottom: 1px solid #3a3a3a;
-}
-
-.header-bar h2 {
-    margin: 0;
-    font-size: 1.1em;
-    color: #8ab4f8; 
-}
-
-.run-control {
-    display: flex;
-    gap: 15px;
-    padding: 20px 0 0 0;
-    margin-top: 20px;
-    border-top: 1px solid #3a3a3a;
-}
-
-#run-button {
-    background-color: #1a73e8; 
-    color: white;
-    border: none;
-    padding: 12px 25px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 1.1em;
-    font-weight: bold;
-    transition: background-color 0.3s, box-shadow 0.3s;
-    box-shadow: 0 4px 10px rgba(26, 115, 232, 0.3);
-}
-
-#run-button:hover {
-    background-color: #1565c0; 
-    box-shadow: 0 6px 15px rgba(26, 115, 232, 0.5);
-}
-
-#run-button:disabled {
-    background-color: #444;
-    cursor: not-allowed;
-    box-shadow: none;
-}
-
-.error {
-    color: #f44336; 
-    font-weight: bold;
+/* Responsive Layout Adjustments */
+@media (max-width: 1024px) {
+    .main-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+    .panel {
+        min-height: 300px;
+    }
 }
