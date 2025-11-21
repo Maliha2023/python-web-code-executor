@@ -12,17 +12,18 @@ from google.genai.errors import APIError
 app = Flask(__name__)
 
 # --- Configuration ---
-MAX_EXECUTION_TIME = 5 # Set the maximum execution time in seconds (e.g., 5 seconds)
+# Set the maximum execution time in seconds (e.g., 5 seconds)
+MAX_EXECUTION_TIME = 5 
 GEMINI_MODEL = "gemini-2.5-flash"
 
 # --- Gemini API Configuration ---
 try:
-    # API Key is automatically handled in the Canvas environment
-    # The client variable is automatically configured to use the API key provided by the execution environment
+    # Initialize the Gemini Client. 
+    # The API key is automatically handled in the Canvas environment.
     client = genai.Client()
     print("Gemini Client Initialized successfully.")
 except Exception as e:
-    print(f"Failed to initialize Gemini Client: {e}")
+    print(f"Failed to initialize Gemini Client: {e}", file=sys.stderr)
     client = None
 
 # --- Custom Exception and Context Manager for Timeout ---
@@ -59,14 +60,16 @@ def index():
     """Serves the main HTML page."""
     return render_template('index.html')
 
-@app.route('/run', methods=['POST'])
+# Renamed route from '/run' to '/execute' for frontend consistency
+@app.route('/execute', methods=['POST'])
 def run_code():
     """
     Executes the user-provided Python code and optionally runs AI debugging.
     """
     data = request.json
     code = data.get('code', '')
-    user_input = data.get('input', '')
+    # CHANGED: expecting 'input_data' key from frontend instead of 'input'
+    user_input = data.get('input_data', '') 
     ai_enabled = data.get('ai_enabled', False)
 
     execution_result = {
@@ -82,6 +85,7 @@ def run_code():
     old_stdout = sys.stdout
     old_stdin = sys.stdin
     redirected_stdout = io.StringIO()
+    # Use user_input string for stdin redirection
     redirected_stdin = io.StringIO(user_input)
     
     sys.stdout = redirected_stdout
@@ -93,7 +97,9 @@ def run_code():
         exec_scope = {}
         # Execute the code within the defined time limit
         with timeout_execution(MAX_EXECUTION_TIME):
-            exec(code, exec_scope)
+            # Compile and execute the code
+            compiled_code = compile(code, '<string>', 'exec')
+            exec(compiled_code, exec_scope)
         
     except ExecutionTimeout as e:
         # Handle the specific Timeout error
@@ -117,8 +123,10 @@ def run_code():
     captured_output = redirected_stdout.getvalue()
 
     # --- 2. AI Debugging (Error Recovery Phase) ---
-    if execution_result['status'] == 'error' and ai_enabled and client and execution_result['error'] != f"Execution exceeded maximum time limit of {MAX_EXECUTION_TIME}s.":
-        # Only run AI if it's a code error, not a timeout
+    # AI runs synchronously here if there was an error and AI is enabled
+    is_code_error = execution_result['status'] == 'error' and execution_result['error'] != f"Execution exceeded maximum time limit of {MAX_EXECUTION_TIME}s."
+
+    if is_code_error and ai_enabled and client:
         try:
             print("--- Running AI Debugging ---")
             
@@ -147,7 +155,7 @@ def run_code():
             Based on the error, provide:
             1. The specific type of compiler error (Lexical, Syntax, or Semantic).
             2. A clear, human-readable explanation of why the error occurred.
-            3. The corrected code snippet ready to be copied.
+            3. The corrected code snippet ready to be copied. Use a Python code block format (```python).
             """
 
             response = client.models.generate_content(
@@ -162,6 +170,8 @@ def run_code():
             execution_result['ai_suggestion'] = f"AI Debugging failed due to an API Error: {e.message}. Please check API key/permissions."
         except Exception as e:
             execution_result['ai_suggestion'] = f"AI Debugging failed: {e}"
+    elif execution_result['status'] == 'error' and not is_code_error:
+         execution_result['ai_suggestion'] = "Code execution timed out. AI debugging skipped."
 
     # --- 3. Final Output Formatting ---
     compiler_analysis_output = f"--- Compiler Analysis ---\n"
@@ -190,7 +200,7 @@ def run_code():
         compiler_analysis_output += "Phase 2: Syntax Analysis (OK)\n"
         compiler_analysis_output += "Phase 3: Semantic Analysis/Runtime (ERROR)\n"
         compiler_analysis_output += "\n--- Execution Output ---\n"
-        execution_result['output'] = compiler_analysis_output + captured_output
+        execution_result['output'] = compiler_analysis_output + execution_result['error'] + "\n\n--- Captured Print Output ---\n" + captured_output
         execution_result['error'] = 'Runtime Error detected.'
     
     else:
@@ -201,12 +211,11 @@ def run_code():
         compiler_analysis_output += f"Execution Time: {execution_time:.4f}s\n"
         compiler_analysis_output += "\n--- Program Output ---\n"
         execution_result['output'] = compiler_analysis_output + captured_output
-        execution_result['ai_suggestion'] = "Code executed successfully. No AI debugging required."
+        execution_result['ai_suggestion'] = execution_result.get('ai_suggestion') or "Code executed successfully. No AI debugging required."
         
 
     return jsonify(execution_result)
 
 # Use this to run the Flask app locally
 if __name__ == '__main__':
-    # In a real environment, you might use a production WSGI server like Gunicorn
     app.run(debug=True, host='0.0.0.0', port=5000)
