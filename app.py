@@ -1,5 +1,6 @@
 import sys
 import io
+import time # Import for potential future timeout implementation
 # ADDED render_template here to handle HTML file rendering
 from flask import Flask, request, jsonify, render_template
 
@@ -56,7 +57,8 @@ class Lexer(object):
         self.current_char = self.text[self.pos]
 
     def error(self, message="Lexing error"):
-        raise Exception(f'[{self.pos}] {message}: Invalid character')
+        # We raise a standard Exception to be caught by the run_aml_interpreter function
+        raise Exception(f'[Lexer @ {self.pos}] {message}: Invalid character or sequence')
 
     def advance(self):
         """Increments position and sets the next character."""
@@ -85,13 +87,22 @@ class Lexer(object):
             while self.current_char is not None and self.current_char.isdigit():
                 result += self.current_char
                 self.advance()
-            return Token(FLOAT, float(result))
+            # Must return float type
+            try:
+                return Token(FLOAT, float(result))
+            except ValueError:
+                self.error(f"Malformed float number: {result}")
         
-        return Token(INTEGER, int(result))
+        # Must return integer type
+        try:
+            return Token(INTEGER, int(result))
+        except ValueError:
+            self.error(f"Malformed integer number: {result}")
 
     def _id(self):
         """Handles keywords or identifiers (variable names)."""
         result = ''
+        # Allow letters, digits, and underscores, but must start with a letter or underscore
         while self.current_char is not None and (self.current_char.isalnum() or self.current_char == '_'):
             result += self.current_char
             self.advance()
@@ -217,13 +228,17 @@ class Parser(object):
 
     def error(self, expected_types=None):
         """Reports a syntax error."""
+        current_type = self.current_token.type
+        current_value = self.current_token.value
+        pos = self.lexer.pos
+
         if expected_types:
             expected_str = ', '.join(expected_types)
-            msg = f'Syntax Error: Expected one of {expected_str}, but found {self.current_token.type} ({self.current_token.value}) at position {self.lexer.pos}.'
+            msg = f'Syntax Error: Expected one of {expected_str}, but found {current_type} ({repr(current_value)}) at position {pos}.'
         else:
-            msg = f'Syntax Error: Unexpected token {self.current_token.type} ({self.current_token.value}) at position {self.lexer.pos}.'
+            msg = f'Syntax Error: Unexpected token {current_type} ({repr(current_value)}) at position {pos}.'
         
-        # In a real environment, this print goes to the captured output stream
+        # Print error details to stdout (which is being captured)
         print(f"\n*** PARSER ERROR DETECTED ***\n{msg}\n*** RECOVERY ATTEMPTED ***")
         return msg
 
@@ -234,11 +249,11 @@ class Parser(object):
         """
         if self.current_token.type == token_type:
             self.current_token = self.lexer.get_next_token()
+            return True
         else:
-            # On error, report and prepare for recovery
+            # On error, report and raise an exception to allow central error handling
             self.error([token_type])
-            return False # Indicates 'eat' failed
-        return True # Indicates 'eat' succeeded
+            raise Exception(f"Failed to consume expected token: {token_type}")
 
     def program(self):
         """
@@ -247,7 +262,11 @@ class Parser(object):
         node = self.statement_list()
         # Only eat EOF if we haven't hit a preceding error that caused synchronization to EOF
         if self.current_token.type != EOF:
-            self.eat(EOF)
+            try:
+                self.eat(EOF)
+            except Exception:
+                # If EOF is expected but not found, return the partial AST
+                pass
         return node
 
     def statement_list(self):
@@ -257,17 +276,29 @@ class Parser(object):
         root = Compound()
         
         while self.current_token.type != EOF:
-            statement_node = self.statement()
-            if statement_node: # If statement was successfully parsed (might be None after recovery)
-                root.children.append(statement_node)
+            try:
+                statement_node = self.statement()
+                if statement_node: # If statement was successfully parsed
+                    root.children.append(statement_node)
 
-            # Expect a semicolon at the end of the statement
-            if self.current_token.type == SEMICOLON:
-                self.eat(SEMICOLON)
-            elif self.current_token.type != EOF:
-                # If it's not EOF and not a semicolon, it's an error.
-                self.error([SEMICOLON])
-                self.synchronize([SEMICOLON, EOF, VAR, PRINT, ID]) # Sync to a semicolon or a statement token
+                # Expect a semicolon at the end of the statement
+                if self.current_token.type == SEMICOLON:
+                    self.eat(SEMICOLON)
+                elif self.current_token.type != EOF:
+                    # If it's not EOF and not a semicolon, it's an error.
+                    self.error([SEMICOLON])
+                    # If semicolon is missing, skip to next likely statement start or EOF
+                    self.synchronize([SEMICOLON, EOF, VAR, PRINT, ID]) 
+                    if self.current_token.type == SEMICOLON:
+                         self.eat(SEMICOLON) # Consume if found
+                    
+            except Exception as e:
+                # General synchronization/recovery for statement errors
+                print(f"Statement parsing error: {e}. Recovering...")
+                self.synchronize([SEMICOLON, EOF, VAR, PRINT, ID])
+                if self.current_token.type == SEMICOLON:
+                    self.eat(SEMICOLON)
+                continue # Try parsing the next statement
 
         return root
 
@@ -275,7 +306,6 @@ class Parser(object):
         """
         Panic Mode Recovery: Skip tokens until a 'safe token' is found.
         """
-        
         print(f"Attempting to synchronize... Looking for: {', '.join(synchronizing_tokens)}")
         
         # Skip tokens until a synchronizing token or EOF is reached
@@ -300,9 +330,7 @@ class Parser(object):
             return NoOp()
         else:
             # Unexpected token - error and recovery
-            self.error(['VAR', 'ID', 'PRINT', 'SEMICOLON'])
-            
-            # Skip this statement and advance to a recovery token
+            self.error(['VAR', 'ID', 'PRINT', 'SEMICOLON', 'EOF'])
             self.synchronize([SEMICOLON, EOF, VAR, PRINT, ID])
             return None # No AST node was generated due to error recovery
 
@@ -330,15 +358,10 @@ class Parser(object):
         self.eat(ID)
         
         token = self.current_token
-        if self.current_token.type == ASSIGN:
-            self.eat(ASSIGN)
-            right = self.expr()
-            return Assign(left, token, right)
-        else:
-            # Missing ASSIGN := error - recovery needed
-            self.error([ASSIGN])
-            self.synchronize([SEMICOLON, EOF, VAR, PRINT, ID])
-            return None
+        self.eat(ASSIGN) # This will raise an error if ASSIGN is missing
+        
+        right = self.expr()
+        return Assign(left, token, right)
 
 
     def print_statement(self):
@@ -362,13 +385,8 @@ class Parser(object):
             elif token.type == MINUS:
                 self.eat(MINUS)
 
-            try:
-                node = BinOp(left=node, op=token, right=self.term())
-            except Exception as e:
-                # If term fails (e.g., missing operand), recovery is needed here
-                print(f"Error during expression parsing: {e}")
-                self.synchronize([SEMICOLON, EOF, VAR, PRINT, ID])
-                return node # Return current node and try to continue statement_list
+            # Note: eat will raise exception on failure, which is caught by statement_list
+            node = BinOp(left=node, op=token, right=self.term())
 
         return node
 
@@ -385,6 +403,7 @@ class Parser(object):
             elif token.type == DIV:
                 self.eat(DIV)
 
+            # Note: eat will raise exception on failure, which is caught by statement_list
             node = BinOp(left=node, op=token, right=self.factor())
 
         return node
@@ -415,11 +434,9 @@ class Parser(object):
             self.eat(ID)
             return Var(token)
         else:
-            # If there is an error in factor, recovery is not possible at this low level
+            # Fatal factor error - raise to be handled by higher level functions (like statement)
             self.error([PLUS, MINUS, INTEGER, FLOAT, LPAREN, ID])
-            # Skip the bad token to potentially recover in the caller function
-            self.current_token = self.lexer.get_next_token()
-            return Num(Token(INTEGER, 0)) # Return a dummy node to prevent compiler crash
+            raise Exception("Invalid factor token encountered.") 
 
     def parse(self):
         """Starts parsing and returns the AST."""
@@ -526,28 +543,38 @@ class Interpreter(object):
     def visit_PrintStmt(self, node):
         """Prints the value as output."""
         result = self.visit(node.expr)
-        print(f"OUTPUT: {result}")
+        # Use simple print which is captured by io.StringIO
+        print(result) 
         
     def interpret(self):
         """Starts compilation and execution."""
         print("--- LEXING & PARSING STARTING ---")
+        tree = None
         try:
             tree = self.parser.parse()
         except Exception as e:
-            # Catch parsing errors if they escape the parser's internal recovery
+            # Catch parsing errors
             print(f"\nFATAL PARSING ERROR: {e}\n")
-            tree = None # Stop execution if parsing fails
+            # If parsing fails, tree might be partially built or None. Execution won't start.
 
-        if tree is not None:
+        if tree is not None and not isinstance(tree, NoOp):
             print("\n--- PROGRAM EXECUTION STARTING ---")
-            self.visit(tree)
-            print("--- PROGRAM EXECUTION FINISHED ---\n")
-            # Print scope for debugging
-            print("--- FINAL GLOBAL SCOPE ---")
+            try:
+                self.visit(tree)
+                print("--- PROGRAM EXECUTION FINISHED ---")
+            except Exception as e:
+                print(f"\nFATAL RUNTIME ERROR: {e}")
+                print("Execution aborted.")
+        
+        # Print scope for debugging (always print, even on error)
+        print("\n--- FINAL GLOBAL SCOPE ---")
+        if self.GLOBAL_SCOPE:
             for var, val in self.GLOBAL_SCOPE.items():
                 # Format to show floats without excessive decimals
                 formatted_val = f"{val:.4f}" if isinstance(val, float) else val
                 print(f"  {var}: {formatted_val}")
+        else:
+            print("  (No variables defined)")
 
 
 # --- 5. Flask Web Application Setup ---
@@ -558,9 +585,10 @@ app = Flask(__name__)
 def run_aml_interpreter(text):
     """Executes the AML code and captures all stdout output."""
     old_stdout = sys.stdout
+    # We redirect the standard output to capture everything printed by the interpreter
     redirected_output = sys.stdout = io.StringIO()
     
-    output_lines = []
+    error = None
     final_scope = {}
     
     try:
@@ -573,9 +601,8 @@ def run_aml_interpreter(text):
         final_scope = interpreter.GLOBAL_SCOPE
         
     except Exception as e:
-        # Capture fatal errors not handled by the parser's recovery logic
-        output_lines.append(f"\nFATAL COMPILER ERROR: {e}")
-        output_lines.append("Compilation aborted.")
+        # Capture fatal errors not handled by the interpreter/parser's internal logic
+        error = f"Unhandled System Error: {e}"
     
     finally:
         # Restore stdout
@@ -584,7 +611,7 @@ def run_aml_interpreter(text):
     # Get captured output
     captured_output = redirected_output.getvalue()
     
-    return captured_output, final_scope
+    return captured_output, final_scope, error
 
 @app.route('/', methods=['GET'])
 def index():
@@ -592,6 +619,7 @@ def index():
     Renders the main HTML page (UI) for the interpreter.
     The HTML file 'index.html' must be placed inside a 'templates' folder.
     """
+    # NOTE: You need to ensure the HTML file is available at templates/index.html
     return render_template('index.html')
 
 @app.route('/run_code', methods=['POST'])
@@ -602,16 +630,48 @@ def run_code():
         return jsonify({'error': 'Missing "code" parameter in request body.'}), 400
     
     aml_code = data['code']
+    # Note: User input (data['input']) is ignored for now as the current interpreter doesn't support input()
+
+    # Get captured output, final scope, and any unhandled errors
+    captured_output, final_scope, unhandled_error = run_aml_interpreter(aml_code)
     
-    captured_output, final_scope = run_aml_interpreter(aml_code)
+    # --- FIX 1: Determine a 'result' value for the frontend. ---
+    # Since the interpreter doesn't explicitly return a final expression value, 
+    # we use the contents of the final scope, or a status message.
     
+    final_result_value = 'Execution Complete'
+    
+    # Optionally, return the value of the last variable in the scope for a simple 'result' display
+    if final_scope:
+        # Get the value of the last variable declared/assigned (arbitrary choice)
+        last_var_name = list(final_scope.keys())[-1]
+        last_var_value = final_scope[last_var_name]
+        
+        # Format for clean display
+        if isinstance(last_var_value, float):
+             final_result_value = f"Last Var ({last_var_name}): {last_var_value:.4f}"
+        else:
+             final_result_value = f"Last Var ({last_var_name}): {last_var_value}"
+
+
+    # --- FIX 2: Rename 'execution_output' to 'output' and include 'result' key. ---
     response_data = {
-        'input_code': aml_code,
-        'execution_output': captured_output.strip(),
+        # 'output' matches the 'result.output' expected by the frontend JS
+        'output': captured_output.strip(), 
+        
+        # 'result' matches the 'result.result' expected by the frontend JS
+        'result': unhandled_error if unhandled_error else final_result_value,
+        
         'final_scope': final_scope,
-        'message': 'AML code execution complete. Check execution_output for compiler/runtime details and errors.'
     }
     
+    # If there was an unhandled system error, return HTTP 500 or 400
+    if unhandled_error:
+        # Pass the full output/error stack
+        response_data['output'] = captured_output
+        return jsonify({'error': unhandled_error, 'output': captured_output}), 400
+
+    # If execution was successful (or only contained internal compiler errors handled gracefully)
     return jsonify(response_data)
 
 if __name__ == '__main__':
