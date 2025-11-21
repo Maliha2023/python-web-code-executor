@@ -3,166 +3,441 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Python Code Executor & Debugger</title>
-    <!-- Load Tailwind CSS for utility classes -->
+    <title>Python Code Executor and AI Debugger</title>
+    <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Load Ace Editor for the code editor interface and line numbering -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.4.12/ace.js"></script>
+    <!-- Load Ace Editor -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
+    <!-- Load Showdown for Markdown to HTML conversion -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
     
     <style>
-        /* Base Styles for Dark Theme and Font */
+        /* Custom styles for Ace Editor container and overall layout */
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #1a202c; /* Dark background */
-            color: #e2e8f0; /* Light text */
+            background-color: #0d1117; /* Dark background */
         }
-        
-        /* Ace Editor minimum size */
-        #editor {
-            min-height: 400px; 
+        .ace_editor {
+            font-size: 14px;
             border-radius: 0.5rem;
+            height: 350px !important; /* Ensure a good default height */
+            border: 1px solid #30363d;
         }
-
-        /* Responsive grid layout for large screens */
-        .main-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 1.5rem;
+        .output-panel {
+            min-height: 150px;
+            max-height: 400px;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
         }
-        @media (min-width: 768px) { /* md breakpoint */
-            .main-grid {
-                grid-template-columns: 2fr 1fr;
-            }
+        /* Style for Code Execution Output (Console Look) */
+        #execution-output {
+            background-color: #010409; /* Very dark for console look */
+            border: 1px solid #30363d;
+            color: #fff; /* Default text color in the console */
+        }
+        #ai-suggestion-output {
+            background-color: #161b22;
+            color: #c9d1d9;
+            border: 1px solid #30363d;
         }
         
-        /* Panel styling for a clean, dark look */
-        .panel {
-            background-color: #2d3748; 
-            border: 1px solid #4a5568; 
-            border-radius: 0.75rem; 
-            padding: 1rem; 
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        /* Style for rendered markdown content (AI Output) */
+        #ai-suggestion-output h1, #ai-suggestion-output h2 {
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 0.3em;
+            margin-top: 1em;
         }
-
-        /* Output Container Styling */
-        .output-scroll-container {
-            font-family: 'Consolas', 'Courier New', monospace;
-            line-height: 1.4;
-            max-height: 350px; /* Limit height for scrollability */
+        #ai-suggestion-output pre {
+            background-color: #010409;
+            padding: 1em;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+            border: 1px solid #30363d;
         }
-
-        /* Text Colors for Output Messages (for visual differentiation) */
-        .text-success {
-            color: #48bb78; /* Green */
+        .container-wrapper {
+            max-width: 1400px;
         }
-
-        .text-error {
-            color: #fc8181; /* Red */
+        /* Toggle switch styling */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
         }
-
-        .text-info {
-            color: #63b3ed; /* Blue */
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
         }
-
-        /* Custom scrollbar for output area */
-        .output-scroll-container::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
         }
-        .output-scroll-container::-webkit-scrollbar-track {
-            background: #2d3748;
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
         }
-        .output-scroll-container::-webkit-scrollbar-thumb {
-            background: #6b7280;
-            border-radius: 4px;
+        input:checked + .slider {
+            background-color: #2196F3;
         }
-        .output-scroll-container::-webkit-scrollbar-thumb:hover {
-            background: #9ca3af;
+        input:checked + .slider:before {
+            transform: translateX(26px);
         }
+        .slider.round { border-radius: 34px; }
+        .slider.round:before { border-radius: 50%; }
     </style>
 </head>
-<body class="p-6">
-
-    <div class="max-w-6xl mx-auto space-y-8">
-        <header class="text-center pb-4 border-b border-indigo-700">
-            <h1 class="text-4xl font-extrabold text-indigo-400">
-                Python Code Executor & Debugger
-            </h1>
-            <!-- UPDATED LINE BELOW -->
-            <p class="mt-2 text-md text-gray-400">
-                AI Powered Debugging (Lexical, Syntax, & Semantic Analysis)
-            </p>
+<body class="min-h-screen p-4 sm:p-8">
+    
+    <div class="container-wrapper mx-auto">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-100 mb-2">Python Code Executor and AI Debugger</h1>
+            <p class="text-gray-400">Execute code instantly and use Gemini for debugging and code recovery.</p>
         </header>
 
-        <!-- Configuration and Controls (Run Button, AI Toggle) -->
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center panel">
-            <div class="flex items-center space-x-4 mb-4 sm:mb-0">
-                <button id="runButton" onclick="runCode()" class="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-bold text-white transition duration-200 shadow-lg hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50">
-                    Run Code
-                </button>
+        <main class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Left Panel: Code and Controls -->
+            <div class="space-y-6">
+                <h2 class="text-2xl font-semibold text-gray-200 border-b border-gray-700 pb-2">Python Code Editor</h2>
+
+                <!-- Code Editor - Content now set via JS -->
+                <div id="code-editor" class="ace_editor"></div>
+
+                <!-- Controls and Toggle -->
+                <div class="flex flex-col sm:flex-row gap-4">
+                    <!-- Run Code Button -->
+                    <button id="run-btn" class="flex-1 px-4 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition duration-150 ease-in-out" onclick="handleCodeExecution()">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 inline-block" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+                        </svg>
+                        Run Code
+                    </button>
+
+                    <!-- AI Debug/Recover Button -->
+                    <button id="ai-btn" class="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition duration-150 ease-in-out disabled:opacity-50" onclick="handleAIGeneration()" disabled>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.044A11.955 11.955 0 005.432 15.01a12.01 12.01 0 007.81 3.473M12 21c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z" />
+                        </svg>
+                        AI Debug/Recover
+                    </button>
+                </div>
                 
-                <div class="flex items-center space-x-2">
-                    <label for="aiToggle" class="text-sm font-medium cursor-pointer">AI Debugging (Gemini)</label>
-                    <input type="checkbox" id="aiToggle" class="h-5 w-5 text-green-600 bg-gray-800 border-gray-600 rounded-md focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-gray-800 cursor-pointer">
-                </div>
-            </div>
-            <div id="statusMessage" class="text-base text-yellow-400 font-semibold transition duration-300">
-                Ready to execute.
-            </div>
-        </div>
-
-        <!-- Main Grid: Code Editor / Input (Left) | Output / AI (Right) -->
-        <div class="main-grid">
-
-            <!-- Left Column: Editor & Input -->
-            <div class="space-y-4">
-                <div class="panel p-0 overflow-hidden">
-                    <div class="p-3 bg-gray-700/50 border-b border-gray-600">
-                        <label class="block text-lg font-semibold text-gray-200">Source Code (Python)</label>
+                <!-- AI Toggle Switch -->
+                <div class="flex items-center justify-between p-3 bg-gray-800 rounded-lg border border-gray-700">
+                    <div class="flex items-center space-x-3">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M3.636 5.636l.707.707M12 20.944h.01M18.364 18.364l-.707-.707M5.636 18.364l.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                        </svg>
+                        <span class="text-lg font-medium text-gray-100">AI Assistance (Debugging & Suggestions)</span>
                     </div>
-                    <!-- Ace Editor container -->
-                    <div id="editor"></div>
+                    
+                    <label class="toggle-switch">
+                        <!-- AI is OFF by default -->
+                        <input type="checkbox" id="ai-toggle">
+                        <span class="slider round"></span>
+                    </label>
                 </div>
 
-                <div class="panel">
-                    <label class="block text-lg font-semibold text-gray-200 mb-2">Program Input (Stdin)</label>
-                    <!-- Input Textarea -->
-                    <textarea id="programInput" rows="4" class="w-full p-3 bg-gray-800 border border-gray-600 focus:ring-teal-500 focus:border-teal-500 rounded-lg resize-none text-sm placeholder-gray-500" placeholder="Enter custom input data here, one line per input() call."></textarea>
+                <!-- Prompt Input (Required for AI) -->
+                <div>
+                    <label for="prompt" class="block text-sm font-medium text-gray-400 mb-1">Prompt / Debug Goal (Required for AI)</label>
+                    <textarea id="prompt" rows="2" class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 text-white focus:ring-blue-500 focus:border-blue-500" placeholder="e.g., Fix the error in the current code, or explain why I am getting a 'KeyError'." title="This input is only required when AI Assistance is enabled."></textarea>
                 </div>
-            </div>
-
-            <!-- Right Column: Output & AI Debugging -->
-            <div class="space-y-4">
                 
-                <!-- Output / Result Panel -->
-                <div class="panel h-full min-h-[300px] flex flex-col">
-                    <label class="block text-lg font-semibold text-gray-200 mb-2">Output & Compiler Analysis</label>
-                    <!-- Output content container -->
-                    <div id="outputContainer" class="output-scroll-container flex-grow overflow-y-auto bg-gray-800 p-3 rounded-lg border border-gray-600 text-sm">
-                        <p class="text-gray-400">// This panel shows the compiler phases and execution results.</p>
-                        <div id="outputContent" class="whitespace-pre-wrap"></div>
-                    </div>
+                <!-- Removed: Full-width Separator Line from Left Panel -->
+            </div>
+
+            <!-- Right Panel: Input and Output -->
+            <!-- Added vertical border (lg:border-l) for separation on large screens -->
+            <div class="space-y-6 lg:border-l lg:border-gray-700 lg:pl-8">
+                
+                <!-- Program Input Area (MOVED BACK TO RIGHT PANEL) -->
+                <div>
+                    <h3 class="text-xl font-medium text-gray-300 mb-1">Program Input</h3>
+                    <textarea id="program-input" rows="3" class="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 text-white focus:ring-blue-500 focus:border-blue-500" placeholder="Enter input data for your Python code here (e.g., 10, John). Provide each input on a new line."></textarea>
                 </div>
 
-                <!-- AI Debugging Panel -->
-                <div class="panel">
-                    <label class="block text-lg font-semibold text-gray-200 mb-2">AI Debugging & Error Recovery (Phase 3)</label>
-                    <div id="aiSuggestions" class="h-40 overflow-y-auto bg-gray-800 p-3 rounded-lg border border-gray-600 text-sm">
-                        <p id="aiContent" class="text-gray-500">// AI suggestions (Copilot-style) will appear here on error if the toggle is ON.</p>
-                        <div id="aiLoading" class="hidden flex items-center space-x-2 mt-2 text-indigo-400">
-                            <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            <span>Analyzing error with Gemini...</span>
-                        </div>
+                <!-- Code Execution Output -->
+                <div>
+                    <h3 class="text-xl font-medium text-gray-300 mb-1">Code Execution Output</h3>
+                    <div id="execution-output" class="output-panel">
+                        <!-- Content set by JavaScript for better styling -->
+                    </div>
+                </div>
+                
+                <!-- AI Suggestions Output -->
+                <div>
+                    <h3 class="text-xl font-medium text-gray-300 mb-1">AI Debugging & Suggestions</h3>
+                    <div id="loading-indicator" class="hidden text-center text-blue-400 p-4">
+                        <svg class="animate-spin h-6 w-6 mr-3 inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        AI is analyzing and streaming suggestions...
+                    </div>
+                    <div id="ai-suggestion-output" class="output-panel text-gray-500">
+                        AI is currently OFF. Toggle the switch and provide a prompt for debugging assistance.
+                    </div>
+                    <div id="error-message" class="hidden text-red-400 p-4 bg-red-900/50 border border-red-700 rounded-lg mt-2">
+                        <!-- API Error messages will appear here -->
                     </div>
                 </div>
             </div>
-        </div>
+        </main>
     </div>
-    
-    <!-- Link to the main JavaScript file -->
-    <script type="module" src="/static/script.js"></script>
+
+    <script>
+        // --- Setup ---
+        const editor = ace.edit("code-editor");
+        const promptInput = document.getElementById('prompt');
+        const programInput = document.getElementById('program-input'); // Input element reference
+        const aiBtn = document.getElementById('ai-btn');
+        const runBtn = document.getElementById('run-btn');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const executionOutput = document.getElementById('execution-output');
+        const aiSuggestionOutput = document.getElementById('ai-suggestion-output');
+        const errorContainer = document.getElementById('error-message');
+        const aiToggle = document.getElementById('ai-toggle');
+        
+        // Constants
+        const AI_OFF_MESSAGE = "AI is currently OFF. Toggle the switch and provide a prompt for debugging assistance.";
+        const SYSTEM_INSTRUCTION = "You are a helpful and experienced Python developer.";
+        const EXECUTION_PLACEHOLDER = "Press 'Run Code' to view program output or errors.";
+        const PLACEHOLDER_COLOR = '#7d7d7d'; 
+
+        // Initialize Ace Editor
+        editor.setTheme("ace/theme/dracula"); 
+        editor.session.setMode("ace/mode/python"); 
+        editor.setOptions({
+            showPrintMargin: false,
+            showLineNumbers: true, 
+            tabSize: 4,
+            wrap: true,
+            minLines: 10,
+            maxLines: 20
+        });
+
+        // Set the new default code value
+        editor.setValue("# write your python code here", -1); // -1 moves cursor to the end
+
+        // Initialize Showdown converter for AI Markdown
+        const converter = new showdown.Converter({
+            'tables': true,
+            'simplifiedAutoLink': true,
+            'strikethrough': true,
+            'tasklists': true,
+            'literalMidWordUnderscores': true
+        });
+
+        // Set initial state for Execution Output
+        executionOutput.textContent = EXECUTION_PLACEHOLDER;
+        executionOutput.style.color = PLACEHOLDER_COLOR;
+
+        // Set initial state for AI Output
+        aiSuggestionOutput.innerHTML = `<p class="text-gray-500">${AI_OFF_MESSAGE}</p>`;
+
+        /**
+         * Toggles the UI state based on the AI switch.
+         */
+        aiToggle.addEventListener('change', () => {
+            const isEnabled = aiToggle.checked;
+            aiBtn.disabled = !isEnabled;
+
+            if (isEnabled) {
+                aiBtn.textContent = 'AI Debug/Recover';
+                // Clear default message if it's the default one
+                if (aiSuggestionOutput.innerHTML.includes('AI is currently OFF')) {
+                    aiSuggestionOutput.innerHTML = '';
+                }
+            } else {
+                aiBtn.textContent = 'AI is OFF - Enable';
+                aiSuggestionOutput.innerHTML = `<p class="text-gray-500">${AI_OFF_MESSAGE}</p>`;
+                loadingIndicator.classList.add('hidden');
+                errorContainer.classList.add('hidden');
+            }
+        });
+
+        /**
+         * Converts Markdown text to HTML.
+         */
+        function formatResponse(markdownText) {
+            return converter.makeHtml(markdownText);
+        }
+
+        /**
+         * ----------------------------------------
+         * 1. Code Execution Handler
+         * ----------------------------------------
+         */
+        async function handleCodeExecution() {
+            runBtn.disabled = true;
+            runBtn.innerHTML = '<svg class="animate-spin h-5 w-5 mr-2 inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Executing...';
+            executionOutput.textContent = 'Executing code...';
+            executionOutput.style.color = '#fff'; // White while running
+            errorContainer.classList.add('hidden');
+            errorContainer.textContent = '';
+            
+            const code = editor.getValue();
+            const inputData = programInput.value; // Get input data
+            
+            // Include input_data in the body payload
+            const body = { 
+                code: code,
+                input_data: inputData // Pass input data to the backend for execution
+            };
+
+            try {
+                const response = await fetch('/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server Error: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                
+                executionOutput.textContent = result.output;
+
+                if (result.error) {
+                    executionOutput.style.color = '#dc3545'; // Red for error
+                } else {
+                    executionOutput.style.color = '#28a745'; // Green for success
+                }
+
+            } catch (error) {
+                console.error('Execution Error:', error);
+                executionOutput.textContent = `Client Error: Failed to connect to execution engine. ${error.message}`;
+                executionOutput.style.color = '#ffc107'; // Yellow for client error
+            } finally {
+                runBtn.disabled = false;
+                runBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 inline-block" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" /></svg> Run Code';
+                // Reset placeholder color if output is empty
+                if (executionOutput.textContent === '' || executionOutput.textContent === EXECUTION_PLACEHOLDER) {
+                    executionOutput.textContent = EXECUTION_PLACEHOLDER;
+                    executionOutput.style.color = PLACEHOLDER_COLOR;
+                }
+            }
+        }
+
+
+        /**
+         * ----------------------------------------
+         * 2. AI Debugging/Suggestion Handler
+         * ----------------------------------------
+         */
+        async function handleAIGeneration() {
+            const aiEnabled = aiToggle.checked;
+            
+            if (!aiEnabled) {
+                errorContainer.textContent = "AI Assistance is off. Please enable it using the toggle switch.";
+                errorContainer.classList.remove('hidden');
+                return;
+            }
+
+            // 1. Get Input Data
+            const prompt = promptInput.value.trim();
+            const existingCode = editor.getValue();
+            
+            if (!prompt) {
+                errorContainer.textContent = "Please provide a Prompt/Debug Goal when using AI Assistance.";
+                errorContainer.classList.remove('hidden');
+                return;
+            }
+
+            // 2. UI State: Loading
+            aiBtn.disabled = true;
+            aiBtn.innerHTML = '<svg class="animate-spin h-5 w-5 mr-2 inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Analyzing...';
+            loadingIndicator.classList.remove('hidden');
+            aiSuggestionOutput.innerHTML = '';
+            errorContainer.classList.add('hidden');
+            errorContainer.textContent = '';
+
+            // 3. API Call Setup (Exponential Backoff for Retries)
+            const MAX_RETRIES = 5;
+            let currentRetry = 0;
+
+            const makeApiCall = async () => {
+                const body = {
+                    prompt: prompt,
+                    system_instruction: SYSTEM_INSTRUCTION,
+                    existing_code: existingCode,
+                    ai_enabled: aiEnabled
+                };
+
+                try {
+                    const response = await fetch('/generate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+
+                    if (response.status === 429 && currentRetry < MAX_RETRIES) {
+                        const delay = Math.pow(2, currentRetry) * 1000 + (Math.random() * 1000); 
+                        currentRetry++;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        return makeApiCall(); // Recursive retry
+                    }
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP error! Status: ${response.status}. ${errorText || 'Unknown server error.'}`);
+                    }
+                    
+                    // 4. Stream Handling
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let fullResponseText = '';
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        const chunk = decoder.decode(value, { stream: true });
+                        fullResponseText += chunk;
+                        
+                        // Update the UI with the formatted content (Markdown to HTML)
+                        aiSuggestionOutput.innerHTML = formatResponse(fullResponseText);
+                        
+                        // Scroll to bottom to show the latest streamed content
+                        aiSuggestionOutput.scrollTop = aiSuggestionOutput.scrollHeight;
+                    }
+
+                } catch (error) {
+                    console.error('AI API Error:', error);
+                    errorContainer.textContent = `AI Error: ${error.message}`;
+                    errorContainer.classList.remove('hidden');
+                } finally {
+                    // 5. UI State: Done
+                    aiBtn.disabled = false;
+                    aiBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.044A11.955 11.955 0 005.432 15.01a12.01 12.01 0 007.81 3.473M12 21c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z" /></svg> AI Debug/Recover';
+                    loadingIndicator.classList.add('hidden');
+                }
+            };
+
+            await makeApiCall();
+        }
+    </script>
 </body>
 </html>
