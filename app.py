@@ -13,12 +13,12 @@ app = Flask(__name__)
 
 # --- Configuration ---
 # Set the maximum execution time in seconds (e.g., 5 seconds)
-MAX_EXECUTION_TIME = 5 
+MAX_EXECUTION_TIME = 5
 GEMINI_MODEL = "gemini-2.5-flash"
 
 # --- Gemini API Configuration ---
 try:
-    # Initialize the Gemini Client. 
+    # Initialize the Gemini Client.
     # The API key is automatically handled in the Canvas environment.
     client = genai.Client()
     print("Gemini Client Initialized successfully.")
@@ -171,7 +171,7 @@ def run_code():
         except Exception as e:
             execution_result['ai_suggestion'] = f"AI Debugging failed: {e}"
     elif execution_result['status'] == 'error' and not is_code_error:
-         execution_result['ai_suggestion'] = "Code execution timed out. AI debugging skipped."
+          execution_result['ai_suggestion'] = "Code execution timed out. AI debugging skipped."
 
     # --- 3. Final Output Formatting ---
     compiler_analysis_output = f"--- Compiler Analysis ---\n"
@@ -216,6 +216,8 @@ def run_code():
 
     return jsonify(execution_result)
 
-# Use this to run the Flask app locally
+# Fixed the missing part of the app.run call.
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Use a standard port like 5000 or the environment variable if available
+    port = int(os.environ.get("PORT", 5000)) if 'os' in sys.modules else 5000 # os module imported implicitly if needed
+    app.run(debug=True, host='0.0.0.0', port=port)
