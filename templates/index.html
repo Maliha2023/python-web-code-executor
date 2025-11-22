@@ -1,466 +1,241 @@
-<!DOCTYPE peeps
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Python Code Executor & AI Debugger</title>
+    <title>Compiler Simulator & AI Debugger</title>
     <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Configure Tailwind for custom styles and Inter font -->
+    <!-- Use Inter font -->
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #e5e7eb; 
+            background-color: #0d1117; /* GitHub Dark Mode background */
         }
-        .code-input, .input-panel {
-            min-height: 250px;
+        .code-area {
+            background-color: #161b22; /* Darker background for code */
+            color: #c9d1d9; /* Light text */
             font-family: monospace;
-            tab-size: 4;
-            line-height: 1.5;
-            transition: all 0.2s;
+            border: 1px solid #30363d;
         }
-        .input-panel {
-            min-height: 100px; /* Smaller height for input panel */
-            max-height: 200px;
-        }
-        .code-input:focus, .input-panel:focus {
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5); /* Custom Focus Ring */
-        }
-        .output-panel {
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            min-height: 150px;
+        .console-area {
+            background-color: #010409;
+            color: #e6edf3;
             font-family: monospace;
         }
-        /* Custom scrollbar for better appearance */
-        .custom-scrollbar::-webkit-scrollbar {
+        .ai-area {
+            background-color: #21262d; /* Slightly lighter dark for contrast */
+            border-left: 4px solid #58a6ff; /* Blue accent for AI */
+            color: #c9d1d9;
+        }
+        /* Custom scrollbar styling */
+        textarea::-webkit-scrollbar, .console-area::-webkit-scrollbar {
             width: 8px;
         }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background-color: #9ca3af; 
+        textarea::-webkit-scrollbar-thumb, .console-area::-webkit-scrollbar-thumb {
+            background-color: #30363d;
             border-radius: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: #f9fafb;
-        }
-        /* Custom toggle switch style */
-        .toggle-switch input:checked + .slider {
-            background-color: #4f46e5;
-        }
-        .toggle-switch input:checked + .slider:before {
-            transform: translateX(20px);
         }
     </style>
 </head>
-<body class="p-4 md:p-8">
-
+<body class="p-4 sm:p-8">
     <div class="max-w-7xl mx-auto">
-        <h1 class="text-3xl font-extrabold text-gray-800 mb-6 border-b-4 border-indigo-600 pb-2">Python Code Executor & AI Debugger</h1>
-        <p class="text-gray-600 mb-6">Write your Python code and manage the execution and AI analysis settings below. Use the phase buttons to run checks step-by-step.</p>
+        <h1 class="text-3xl font-bold text-gray-100 mb-6 border-b border-gray-700 pb-3">
+            Python Compiler Phases & AI Debugger
+        </h1>
 
-        <!-- Main Grid Layout -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-            <!-- Left Column: Code Editor, Input, & Controls (Span 2) -->
-            <div class="lg:col-span-2">
-                <div class="bg-white p-6 rounded-xl shadow-2xl h-full flex flex-col border-t-4 border-indigo-600">
-                    <h2 class="text-xl font-semibold text-gray-700 mb-4">Source Code (Python)</h2>
-                    
-                    <!-- Code Input Area -->
-                    <textarea id="code-input" class="code-input w-full p-4 border border-gray-300 rounded-lg focus:border-indigo-500 bg-gray-50 flex-grow" placeholder="Enter your Python code here...">
-# Example: This code has a Syntax Error (Python 2 print statement)
-def calculate_area(length, width):
-    return length * width
-    
-# Missing parentheses for print function
-print "Result:", calculate_area(5, 10)
-</textarea>
+            <!-- CODE & INPUT SECTION (Col 1 & 2) -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Code Editor -->
+                <div>
+                    <label for="code" class="block text-sm font-medium text-gray-300 mb-2">Python Code Editor</label>
+                    <textarea id="code" rows="15" class="code-area w-full rounded-lg p-4 resize-none focus:ring-blue-500 focus:border-blue-500" placeholder="# Enter your Python code here...
+def greet(name):
+    print(f'Hello, {name}!')
 
-                    <!-- Standard Input Panel (STDIN) -->
-                    <h3 class="text-lg font-medium text-gray-700 mt-6 mb-2">Standard Input (Optional)</h3>
-                    <textarea id="stdin-input" class="input-panel w-full p-3 border border-gray-300 rounded-lg focus:border-indigo-500 bg-gray-100 text-sm" placeholder="Enter any input your code expects (e.g., if using input())."></textarea>
+# Test case for semantic error: uncomment the line below for a Semantic check test
+# print(1 / 0)
 
-                    <!-- Control Buttons & AI Toggle -->
-                    <div class="mt-6 flex flex-wrap items-center justify-between gap-4">
-                        <div class="flex flex-wrap gap-4 items-center">
-                            <!-- Main Execution Button -->
-                            <button onclick="runCode()" id="btn-run" class="px-6 py-3 bg-gradient-to-r from-red-600 to-pink-600 text-white font-bold rounded-lg shadow-2xl hover:shadow-3xl hover:from-red-700 hover:to-pink-700 transition duration-300 transform hover:scale-105">
-                                Run Code
-                            </button>
-                            <!-- AI Toggle Switch -->
-                            <label class="flex items-center space-x-2 toggle-switch cursor-pointer">
-                                <span class="text-sm font-medium text-gray-500" id="ai-toggle-off-label">AI Debugging Off</span>
-                                <input type="checkbox" id="ai-toggle" class="hidden" checked>
-                                <div class="slider w-10 h-6 bg-gray-300 rounded-full p-1 transition duration-200 ease-in-out">
-                                    <div class="dot w-4 h-4 bg-white rounded-full shadow-md transition duration-200 ease-in-out"></div>
-                                </div>
-                                <span class="text-sm font-medium text-indigo-600" id="ai-toggle-label">On</span>
-                            </label>
-                        </div>
-                        
-                        <!-- NEW: Three separate Phase Check Buttons -->
-                        <div class="flex flex-wrap gap-3">
-                            <button onclick="simulatePhase1()" class="px-4 py-2 bg-gradient-to-r from-teal-500 to-green-500 text-white text-sm font-medium rounded-lg shadow-md hover:from-teal-600 hover:to-green-600 transition duration-150">
-                                Phase 1: Lexical Check
-                            </button>
-                            <button onclick="simulatePhase2()" class="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-sm font-medium rounded-lg shadow-md hover:from-indigo-600 hover:to-purple-600 transition duration-150">
-                                Phase 2: Syntax Check
-                            </button>
-                            <button onclick="simulatePhase3()" class="px-4 py-2 bg-gradient-to-r from-blue-500 to-sky-500 text-white text-sm font-medium rounded-lg shadow-md hover:from-blue-600 hover:to-sky-600 transition duration-150">
-                                Phase 3: Semantic Run
-                            </button>
-                        </div>
-                    </div>
+greet('World')"></textarea>
+                </div>
+
+                <!-- Standard Input -->
+                <div>
+                    <label for="input_data" class="block text-sm font-medium text-gray-300 mb-2">Standard Input (stdin)</label>
+                    <textarea id="input_data" rows="3" class="code-area w-full rounded-lg p-4 resize-none focus:ring-blue-500 focus:border-blue-500" placeholder="Optional: Enter input data for the code (e.g., '5&#10;10')"></textarea>
                 </div>
             </div>
 
-            <!-- Right Column: Output & Debug Panels (Span 1) -->
-            <div class="lg:col-span-1 space-y-6">
+            <!-- CONTROLS & AI DEBUGGING SECTION (Col 3) -->
+            <div class="space-y-6">
+                <!-- Controls -->
+                <div class="p-6 bg-[#161b22] rounded-xl shadow-lg border border-gray-700">
+                    <h2 class="text-xl font-semibold text-gray-100 mb-4">Compiler Actions</h2>
+                    <div class="space-y-3">
+                        <button onclick="runCode(false)" id="run-button" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md">
+                            Run Code (Full Execution)
+                        </button>
+                        
+                        <div class="flex items-center space-x-2 p-2 bg-gray-700/50 rounded-lg">
+                            <input type="checkbox" id="ai-toggle" checked class="h-4 w-4 text-blue-600 border-gray-600 rounded focus:ring-blue-500">
+                            <label for="ai-toggle" class="text-sm text-gray-300 select-none">Enable AI Debugging on Error</label>
+                        </div>
 
-                <!-- Execution Output Panel -->
-                <div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-green-600">
-                    <h2 class="text-xl font-semibold text-gray-700 mb-3 flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 mr-2 text-green-600">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708.975c.007.352.007.695 0 1.047l.708.975a.75.75 0 01-1.063.852l-.041-.02a.75.75 0 01-.007 1.066l-.042.022c-.22.12-.452.176-.685.176h-.083a.75.75 0 01-.75-.75V11.25a.75.75 0 011.5 0zM12 21a9 9 0 100-18 9 9 0 000 18z" />
-                        </svg>
-                        Execution Output & Phase Report
-                    </h2>
-                    <pre id="output-panel" class="output-panel p-3 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-800 custom-scrollbar overflow-y-auto">Execution Output: Ready to run.</pre>
-                </div>
-
-                <!-- AI Debugging Panel -->
-                <div class="bg-white p-6 rounded-xl shadow-2xl border-t-4 border-red-600">
-                    <h2 class="text-xl font-semibold text-gray-700 mb-3 flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 mr-2 text-red-600">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 01-3.08-3.08L2.25 12l2.846-.813a4.5 4.5 0 013.08-3.08L9 5.25l.813 2.846a4.5 4.5 0 013.08 3.08L15.75 12l-2.846.813a4.5 4.5 0 01-3.08 3.08zM17.25 11.25h1.5M19.5 12v1.5M19.5 9v1.5M19.5 13.5v1.5M19.5 7.5v1.5M19.5 15v1.5M19.5 6v1.5M19.5 16.5v1.5M19.5 4.5v1.5M19.5 18v1.5" />
-                        </svg>
-                        AI Debugging & Fixed Code
-                    </h2>
-                    <div id="ai-debug-panel" class="output-panel p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-sm text-gray-800 custom-scrollbar overflow-y-auto">
-                        <!-- Default AI Message -->
-                        <div class="flex items-center text-yellow-800 font-semibold">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-2 text-yellow-600">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 01-3.08-3.08L2.25 12l2.846-.813a4.5 4.5 0 013.08-3.08L9 5.25l.813 2.846a4.5 4.5 0 013.08 3.08L15.75 12l-2.846.813a4.5 4.5 0 01-3.08 3.08zM17.25 11.25h1.5M19.5 12v1.5M19.5 9v1.5M19.5 13.5v1.5M19.5 7.5v1.5M19.5 15v1.5M19.5 6v1.5M19.5 16.5v1.5M19.5 4.5v1.5M19.5 18v1.5" />
-                            </svg>
-                            <span>AI analysis and corrected code will appear here.</span>
+                        <div class="pt-4 border-t border-gray-700">
+                            <p class="text-sm text-gray-400 mb-2">Check Specific Phase:</p>
+                            <div class="grid grid-cols-3 gap-2">
+                                <button onclick="checkPhase('lexical')" id="lexical-button" class="phase-button bg-gray-600 hover:bg-gray-700 text-white text-xs py-2 rounded-lg transition duration-200">
+                                    Lexical
+                                </button>
+                                <button onclick="checkPhase('syntax')" id="syntax-button" class="phase-button bg-gray-600 hover:bg-gray-700 text-white text-xs py-2 rounded-lg transition duration-200">
+                                    Syntax
+                                </button>
+                                <button onclick="checkPhase('semantic')" id="semantic-button" class="phase-button bg-gray-600 hover:bg-gray-700 text-white text-xs py-2 rounded-lg transition duration-200">
+                                    Semantic
+                                </button>
+                            </div>
                         </div>
                     </div>
+                </div>
+
+                <!-- AI Debugging Output -->
+                <div id="ai-output-container" class="ai-area p-4 rounded-xl shadow-lg transition duration-300 hidden">
+                    <h2 class="text-xl font-semibold text-blue-400 mb-3">🤖 AI Debugging Assistant</h2>
+                    <div id="ai-output" class="text-sm whitespace-pre-wrap overflow-auto max-h-96"></div>
                 </div>
             </div>
         </div>
+
+        <!-- OUTPUT CONSOLE SECTION -->
+        <div class="mt-6">
+            <h2 class="text-xl font-semibold text-gray-100 mb-3">Execution Console & Error Trace</h2>
+            <div id="console-output" class="console-area p-4 rounded-lg shadow-inner border border-gray-700 overflow-auto max-h-96 text-sm">
+                Awaiting code execution...
+            </div>
+        </div>
+
     </div>
 
-    <!-- Firebase SDK Imports -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Global Firebase variables
-        let app, db, auth, userId;
-        window.db = db; // Attach to window for global access
-
-        // --- Firebase Initialization and Authentication ---
-        async function initializeFirebase() {
-            try {
-                // Mandatory global variables check
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-
-                if (Object.keys(firebaseConfig).length === 0) {
-                    console.error("Firebase configuration is missing.");
-                    return;
-                }
-
-                app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                window.db = db;
-                window.auth = auth;
-
-                setLogLevel('error'); // Set error logging level
-
-                // Authentication using custom token or anonymous sign-in
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-
-                onAuthStateChanged(auth, (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        console.log("Firebase Auth State Changed. User ID:", userId);
-                    } else {
-                        userId = crypto.randomUUID(); // Fallback for unauthenticated state
-                        console.log("Firebase Auth State Changed. Anonymous/Fallback ID:", userId);
-                    }
-                    window.userId = userId; // Make userId globally available
-                });
-
-            } catch (error) {
-                console.error("Firebase initialization or sign-in failed:", error);
-                document.getElementById('output-panel').textContent = `Initialization Error: ${error.message}. Check console for details.`;
-            }
-        }
-
-        initializeFirebase();
-    </script>
-
-
-    <!-- Application Logic -->
     <script>
-        const API_URL_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
-        const MODEL_NAME = 'gemini-2.5-flash-preview-09-2025';
-        const apiKey = ""; // API key is provided by the canvas environment
-
-        const outputPanel = document.getElementById('output-panel');
-        const aiDebugPanel = document.getElementById('ai-debug-panel');
-        const codeInput = document.getElementById('code-input');
-        const stdinInput = document.getElementById('stdin-input');
+        const codeEditor = document.getElementById('code');
+        const inputData = document.getElementById('input_data');
+        const consoleOutput = document.getElementById('console-output');
+        const aiOutput = document.getElementById('ai-output');
+        const aiOutputContainer = document.getElementById('ai-output-container');
+        const runButton = document.getElementById('run-button');
         const aiToggle = document.getElementById('ai-toggle');
-        const aiToggleLabel = document.getElementById('ai-toggle-label');
-        const aiToggleOffLabel = document.getElementById('ai-toggle-off-label');
+        const phaseButtons = document.querySelectorAll('.phase-button');
 
-        // Event listener for the toggle switch
-        aiToggle.addEventListener('change', (event) => {
-            const isChecked = event.target.checked;
-            aiToggleLabel.textContent = isChecked ? 'On' : 'Off';
-            aiToggleLabel.classList.toggle('text-indigo-600', isChecked);
-            aiToggleLabel.classList.toggle('text-gray-500', !isChecked);
-            
-            aiToggleOffLabel.textContent = isChecked ? 'AI Debugging On' : 'AI Debugging Off';
-            aiToggleOffLabel.classList.toggle('text-gray-700', isChecked);
-            aiToggleOffLabel.classList.toggle('text-gray-500', !isChecked);
-        });
+        // Helper function to disable/enable controls during processing
+        function setControlsDisabled(disabled, buttonId = null) {
+            runButton.disabled = disabled;
+            phaseButtons.forEach(btn => btn.disabled = disabled);
 
-        // Initialize label on load
-        document.addEventListener('DOMContentLoaded', () => {
-            aiToggle.checked = false; // Set AI off by default
-            aiToggle.dispatchEvent(new Event('change'));
-        });
-
-
-        // English default message HTML content, styled for clarity
-        const defaultAIDebugMessage = `
-            <div class="flex items-center text-yellow-800 font-semibold">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-2 text-yellow-600">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 01-3.08-3.08L2.25 12l2.846-.813a4.5 4.5 0 013.08-3.08L9 5.25l.813 2.846a4.5 4.5 0 013.08 3.08L15.75 12l-2.846.813a4.5 4.5 0 01-3.08 3.08zM17.25 11.25h1.5M19.5 12v1.5M19.5 9v1.5M19.5 13.5v1.5M19.5 7.5v1.5M19.5 15v1.5M19.5 6v1.5M19.5 16.5v1.5M19.5 4.5v1.5M19.5 18v1.5" />
-                </svg>
-                <span>AI analysis and corrected code will appear here.</span>
-            </div>
-        `;
-        
-        // Initialize with the English message
-        aiDebugPanel.innerHTML = defaultAIDebugMessage;
-
-        // --- Utility Functions ---
-
-        // Simple exponential backoff for API calls
-        async function fetchWithBackoff(url, options, maxRetries = 5) {
-            for (let i = 0; i < maxRetries; i++) {
-                try {
-                    const response = await fetch(url, options);
-                    if (!response.ok) {
-                        if (response.status === 429 && i < maxRetries - 1) { // Rate limit
-                            const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
-                            await new Promise(resolve => setTimeout(resolve, delay));
-                            continue;
-                        }
-                        throw new Error(`HTTP error! Status: ${response.status}`);
-                    }
-                    return response;
-                } catch (error) {
-                    if (i === maxRetries - 1) throw error;
-                    const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                }
-            }
-        }
-        
-        function setLoading(element, isLoading, message = "Analyzing...") {
-            element.innerHTML = isLoading ? `<div class="animate-pulse text-indigo-600">${message}</div>` : "";
-        }
-
-        // --- Simulated Compiler Functions ---
-
-        // Helper to check for common mock errors
-        function getMockError(code) {
-            // 1. Lexical Error (Phase 1: Illegal Character)
-            if (code.includes('$')) {
-                return { phase: 'Lexical', error: 'LexicalError: Illegal character \'$\' found on line X.' };
-            }
-            // 2. Syntax Error (Phase 2: Python 2 print statement)
-            if (code.includes('print "') && !code.includes('print("')) {
-                return { phase: 'Syntax', error: 'SyntaxError: Missing parentheses in call to \'print\'. Did you mean print(...)?\nLine 5: print "Result:", calculate_area(5, 10))' };
-            }
-            // 3. Semantic/Runtime Errors (Phase 3)
-            if (code.includes('a = 10 / 0')) {
-                 return { phase: 'Semantic', error: 'ZeroDivisionError: division by zero\nLine 1: a = 10 / 0' };
-            }
-            if (code.includes('undefined_variable')) {
-                return { phase: 'Semantic', error: 'NameError: name \'undefined_variable\' is not defined\nLine 1: print(undefined_variable)' };
-            }
-            return null;
-        }
-
-        function getMockRunResult(code, input) {
-            const error = getMockError(code);
-            if (error) return error; // Return error if found in any phase
-
-            // Check for a simple mock input usage if no error found
-            if (code.includes('input()') || code.includes('raw_input')) {
-                const inputLines = input.trim().split('\n');
-                if (inputLines.length > 0 && inputLines[0].length > 0) {
-                    const mockOutput = `Received Input: ${inputLines[0]}\nCode executed successfully based on mock input.\nResult: 50\nProcess finished with exit code 0`;
-                    return { phase: 'Complete', output: mockOutput };
+            if (buttonId) {
+                if (disabled) {
+                    document.getElementById(buttonId).textContent = 'Processing...';
+                    document.getElementById(buttonId).classList.add('opacity-70', 'cursor-not-allowed');
                 } else {
-                    return { phase: 'Semantic', error: 'InputRequiredError: Code expects runtime input (input() was called) but no input was provided in the Standard Input panel.' };
+                    // Reset all buttons to original text/style
+                    document.getElementById('run-button').textContent = 'Run Code (Full Execution)';
+                    document.getElementById('lexical-button').textContent = 'Lexical';
+                    document.getElementById('syntax-button').textContent = 'Syntax';
+                    document.getElementById('semantic-button').textContent = 'Semantic';
+                    document.querySelectorAll('.phase-button, #run-button').forEach(btn => {
+                        btn.classList.remove('opacity-70', 'cursor-not-allowed');
+                    });
                 }
             }
-            
-            // Mock successful execution
-            const mockOutput = "Result: 50\nProcess finished with exit code 0";
-            return { phase: 'Complete', output: mockOutput };
-        }
-        
-        function simulatePhase1() {
-            setLoading(outputPanel, true, "Running Phase 1: Lexical Check...");
-            aiDebugPanel.innerHTML = defaultAIDebugMessage;
-            const code = codeInput.value;
-            const error = getMockError(code);
-
-            setTimeout(() => {
-                if (error && error.phase === 'Lexical') {
-                    outputPanel.textContent = `--- Compiler Analysis Report ---\nPhase 1: Lexical Analysis (ERROR)\n\n--- Traceback ---\n${error.error}\n\nERROR: Code execution halted due to Lexical Error.`;
-                    aiDebugPanel.innerHTML = `<h3 class="font-bold text-red-700 mb-2">Lexical Error Detected:</h3><p class="text-gray-700">The Lexer found an illegal character. Please correct the code and re-run.</p>`;
-                } else {
-                    outputPanel.textContent = `--- Compiler Analysis Report ---\nPhase 1: Lexical Analysis (OK)\n\nSUCCESS: All tokens are valid. Ready for Syntax check (Phase 2).`;
-                    aiDebugPanel.innerHTML = `<h3 class="font-bold text-green-700 mb-2">Lexical Check Successful:</h3><p class="text-gray-700">All characters are valid Python tokens.</p>`;
-                }
-            }, 500);
         }
 
-        function simulatePhase2() {
-            setLoading(outputPanel, true, "Running Phase 2: Syntax Check...");
-            aiDebugPanel.innerHTML = defaultAIDebugMessage;
-            const code = codeInput.value;
-            const error = getMockError(code);
-
-            setTimeout(() => {
-                // Check for Lexical errors first (Phase 1 failure)
-                if (error && error.phase === 'Lexical') {
-                    outputPanel.textContent = `--- Compiler Analysis Report ---\nPhase 1: Lexical Analysis (ERROR)\nPhase 2: Syntax Analysis (SKIPPED)\n\n--- Traceback ---\n${error.error}\n\nERROR: Syntax check skipped due to preceding Lexical Error.`;
-                    aiDebugPanel.innerHTML = `<h3 class="font-bold text-red-700 mb-2">Lexical Error Found:</h3><p class="text-gray-700">Syntax check cannot proceed until the Lexical Error is fixed (Phase 1 failed).</p>`;
-                } 
-                // Then check for Syntax errors (Phase 2 failure)
-                else if (error && error.phase === 'Syntax') {
-                    outputPanel.textContent = `--- Compiler Analysis Report ---\nPhase 1: Lexical Analysis (OK)\nPhase 2: Syntax Analysis (ERROR)\n\n--- Traceback ---\n${error.error}\n\nERROR: Code structure invalid.`;
-                    aiDebugPanel.innerHTML = `<h3 class="font-bold text-red-700 mb-2">Syntax Error Detected:</h3><p class="text-gray-700">Syntax check failed. Please correct the structural error.</p>`;
-                }
-                // Success
-                else {
-                    outputPanel.textContent = `--- Compiler Analysis Report ---\nPhase 1: Lexical Analysis (OK)\nPhase 2: Syntax Analysis (OK)\n\nSUCCESS: Code is syntactically valid. Ready for Semantic check (Phase 3).`;
-                    aiDebugPanel.innerHTML = `<h3 class="font-bold text-green-700 mb-2">Syntax Check Successful:</h3><p class="text-gray-700">Code is structurally sound.</p>`;
-                }
-            }, 800);
-        }
-
-        function simulatePhase3() {
-            setLoading(outputPanel, true, "Running Phase 3: Semantic Check & Execution...");
-            aiDebugPanel.innerHTML = defaultAIDebugMessage;
-
-            const code = codeInput.value;
-            const input = stdinInput.value;
-            const result = getMockRunResult(code, input);
-
-            setTimeout(() => {
-                if (result.phase === 'Complete') {
-                    outputPanel.textContent = `--- Compiler Analysis Report ---\nPhase 1: Lexical Analysis (OK)\nPhase 2: Syntax Analysis (OK)\nPhase 3: Semantic Analysis (OK)\n\nExecution Time: 0.05s\n\n--- Program Output ---\n${result.output}`;
-                    aiDebugPanel.innerHTML = `<h3 class="font-bold text-green-700 mb-2">Execution Successful:</h3><p class="text-gray-700">Code executed successfully. No AI debugging required.</p>`;
-                } else {
-                    // Check if error is Lexical or Syntax, in which case we stop here and report.
-                     if (result.phase === 'Lexical' || result.phase === 'Syntax') {
-                         outputPanel.textContent = `--- Compiler Analysis Report ---\nPhase 1-2: Failed.\nPhase 3: Semantic Check (SKIPPED)\n\n--- Traceback ---\n${result.error}\n\nERROR: Code execution failed due to a fundamental error in an earlier phase.`;
-                     } else {
-                         // Semantic/Runtime Error
-                         outputPanel.textContent = `--- Compiler Analysis Report ---\nPhase 1: Lexical Analysis (OK)\nPhase 2: Syntax Analysis (OK)\nPhase 3: Semantic Analysis/Runtime (ERROR)\n\n--- Traceback ---\n${result.error}\n\nERROR: Code execution halted due to Runtime Error.`;
-                     }
-
-                    aiDebugPanel.innerHTML = `<h3 class="font-bold text-red-700 mb-2">Runtime Error Detected:</h3><p class="text-gray-700">Execution resulted in an error. Press 'Run Code' (with AI on or off) for a full report.</p>`;
-                }
-            }, 800);
-        }
-        
-        // --- AI Debugging Logic ---
-        async function callGeminiAPI(code, traceback) {
-            const apiUrl = `${API_URL_BASE}${MODEL_NAME}:generateContent?key=${apiKey}`;
-            
-            const systemPrompt = `You are a helpful Python Debugging Assistant and Tutor. Your task is to analyze the provided Python code and the accompanying traceback error.
-                1. Identify the type of error (Lexical, Syntax, or Semantic/Runtime).
-                2. Provide a detailed explanation of the error in simple English.
-                3. Provide the corrected, runnable Python code within a markdown code block.
-                4. The entire response must be in English.`;
-
-            const userQuery = `Analyze this Python code and its error:\n\n--- Python Code ---\n${code}\n\n--- Error Traceback ---\n${traceback}\n\nPlease analyze and provide the explanation and the fixed code.`;
-
-            const payload = {
-                contents: [{ parts: [{ text: userQuery }] }],
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-            };
-
-            setLoading(aiDebugPanel, true, "AI Debugger is analyzing the error...");
-
+        async function postData(url, data) {
+            // Function to handle the fetch request
             try {
-                const response = await fetchWithBackoff(apiUrl, {
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(data)
                 });
-                
-                const result = await response.json();
-                const text = result.candidates?.[0]?.content?.parts?.[0]?.text || "AI Response Error: Could not parse response.";
-                
-                aiDebugPanel.innerHTML = `<h3 class="font-bold text-red-700 mb-2">AI Analysis and Fixed Code:</h3>` + text;
-
-            } catch (error) {
-                console.error("Gemini API call failed:", error);
-                aiDebugPanel.textContent = `API Call Failed. Error: ${error.message}`;
-            }
-        }
-
-
-        async function runCode() {
-            setLoading(outputPanel, true, "Running Code...");
-            aiDebugPanel.innerHTML = defaultAIDebugMessage;
-
-            const code = codeInput.value;
-            const input = stdinInput.value;
-            const isAiEnabled = aiToggle.checked;
-            
-            // Wait for the full simulation/API call to finish
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            const result = getMockRunResult(code, input);
-
-            if (result.phase === 'Complete') {
-                // Successful execution
-                outputPanel.textContent = `--- Full Execution Report ---\nCode ran successfully through all phases.\nExecution Time: 0.05s\n\n--- Program Output ---\n${result.output}`;
-                aiDebugPanel.innerHTML = `<h3 class="font-bold text-green-700 mb-2">Execution Successful:</h3><p class="text-gray-700">Code executed successfully. No errors found.</p>`;
-            } else {
-                // Error encountered (Lexical, Syntax, or Semantic/Runtime)
-                outputPanel.textContent = `--- Full Execution Report ---\nPhase: ${result.phase} (ERROR)\n\n--- Traceback ---\n${result.error}\n\nERROR: Code execution halted.`;
-
-                if (isAiEnabled) {
-                    outputPanel.textContent += ` AI Debugger initiating...`;
-                    await callGeminiAPI(code, result.error);
-                } else {
-                    aiDebugPanel.innerHTML = `<h3 class="font-bold text-red-700 mb-2">Error Detected:</h3><p class="text-gray-700">An error was detected during execution. AI Debugging is currently OFF. Please enable the AI toggle and click 'Run Code' again to get a detailed analysis and corrected code.</p>`;
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
+                return await response.json();
+            } catch (error) {
+                console.error('Fetch error:', error);
+                return { 
+                    status: 'error', 
+                    error: `Network or Server Error: ${error.message}. Ensure the backend is running.`,
+                    output: `[NETWORK ERROR] Could not connect to the backend server. Please check the network or server status.`
+                };
             }
         }
+        
+        // --- Full Execution & AI Debugging ---
+        async function runCode() {
+            setControlsDisabled(true, 'run-button');
+            aiOutputContainer.classList.add('hidden');
+            aiOutput.textContent = '';
+            consoleOutput.innerHTML = '<span class="text-blue-400">Executing code and checking for errors...</span>';
 
+            const payload = {
+                code: codeEditor.value,
+                input_data: inputData.value,
+                ai_enabled: aiToggle.checked
+            };
+
+            const result = await postData('/execute', payload);
+
+            consoleOutput.textContent = result.output || result.error || 'No output or error received.';
+            
+            if (result.status === 'error' && result.ai_suggestion) {
+                aiOutput.textContent = result.ai_suggestion;
+                aiOutputContainer.classList.remove('hidden');
+            } else if (result.status === 'success') {
+                aiOutput.textContent = result.ai_suggestion || "Code executed successfully.";
+                aiOutputContainer.classList.remove('hidden');
+                // Highlight successful execution status
+                consoleOutput.innerHTML = `<span class="text-green-400">--- Execution Successful ---</span>\n\n${consoleOutput.textContent}`;
+            }
+
+            setControlsDisabled(false, 'run-button');
+        }
+
+        // --- Phase Check Utility ---
+        async function checkPhase(phase) {
+            setControlsDisabled(true, `${phase}-button`);
+            aiOutputContainer.classList.add('hidden');
+            aiOutput.textContent = '';
+            consoleOutput.innerHTML = `<span class="text-yellow-400">Running Phase Check: ${phase.toUpperCase()}...</span>`;
+
+            const payload = {
+                code: codeEditor.value,
+                phase: phase,
+                input_data: inputData.value
+            };
+
+            const result = await postData('/check_phase', payload);
+
+            let message = `<span class="font-bold">Phase: ${phase.toUpperCase()} Check Result:</span> `;
+            let outputContent = result.output;
+
+            if (result.status === 'success') {
+                message += `<span class="text-green-400">SUCCESS</span>\n`;
+                message += `Message: ${result.message}\n`;
+                if (outputContent) {
+                    message += `\n--- Standard Output (stdout) ---\n${outputContent}`;
+                }
+            } else {
+                message += `<span class="text-red-400">ERROR!</span>\n`;
+                message += `Message: ${result.message}\n`;
+                message += `Error Details:\n${result.error || 'Unknown error'}`;
+            }
+
+            consoleOutput.textContent = message;
+            setControlsDisabled(false, `${phase}-button`);
+        }
     </script>
 </body>
 </html>
